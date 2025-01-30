@@ -1,0 +1,2 @@
+Strain	Mass. (kDa)	pH Opt.	Temp. Opt. (°C)	Ref.
+Bacillus stratosphericus	19	9.0	35	(Gricajeva et al., 2016)

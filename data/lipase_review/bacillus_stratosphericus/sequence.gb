@@ -1,0 +1,59 @@
+LOCUS       KP331444                 646 bp    DNA     linear   BCT 24-MAR-2015
+DEFINITION  Bacillus stratosphericus strain L1 lipase (LipBST) gene, partial
+            cds.
+ACCESSION   KP331444
+VERSION     KP331444.1
+KEYWORDS    .
+SOURCE      Bacillus stratosphericus
+  ORGANISM  Bacillus stratosphericus
+            Bacteria; Bacillati; Bacillota; Bacilli; Bacillales; Bacillaceae;
+            Bacillus.
+REFERENCE   1  (bases 1 to 646)
+  AUTHORS   Gricajeva,A., Bendikiene,V. and Kalediene,L.
+  TITLE     Bacillus stratosphericus L1 lipases: determination, cloning and
+            some properties
+  JOURNAL   Unpublished
+REFERENCE   2  (bases 1 to 646)
+  AUTHORS   Gricajeva,A.
+  TITLE     Direct Submission
+  JOURNAL   Submitted (29-DEC-2014) Department of Microbiology and
+            Biotechnology, Vilnius University, 21/27, M.K. Ciurlionio Street,
+            Vilnius LT-03101, Lithuania
+COMMENT     ##Assembly-Data-START##
+            Sequencing Technology :: Sanger dideoxy sequencing
+            ##Assembly-Data-END##
+FEATURES             Location/Qualifiers
+     source          1..646
+                     /organism="Bacillus stratosphericus"
+                     /mol_type="genomic DNA"
+                     /strain="L1"
+                     /isolation_source="lipid containing food"
+                     /db_xref="taxon:293386"
+                     /geo_loc_name="Lithuania"
+     gene            1..>646
+                     /gene="LipBST"
+     CDS             1..>646
+                     /gene="LipBST"
+                     /EC_number="3.1.1.3"
+                     /codon_start=1
+                     /transl_table=11
+                     /product="lipase"
+                     /protein_id="AJW76889.1"
+                     /translation="MKVICFKKKSLQILVALALVIGSMAFIQPKEVKAAAHNPVVMVH
+                     GMGGASYNFASIKRYLVSQGWDQNQLFAIDFIDKTGNNLNNGPRLSRFVKDVLAKTGA
+                     KKVDIVAHSMGGANTLYYIKNLDGGDKIENVVTLGGANGLVSLRALPGTDPNQKILYT
+                     SVYSSADLIVVNSLSRLIGARNVLIHGVGHIGLLTSSQVKGYVKEGLNGGGQNTN"
+ORIGIN      
+        1 atgaaagtga tttgttttaa gaaaaagagt ttgcaaattc ttgttgccct tgccttagtg
+       61 ataggttcaa tggccttcat ccagccgaaa gaagtcaaag cggctgcgca taatccggtt
+      121 gtgatggtgc atggtatggg cggtgcgtct tataactttg cttcgatcaa acgatactta
+      181 gtatcacagg gctgggatca aaaccaactt tttgcaatcg atttcataga caaaacaggc
+      241 aataacctga acaatggccc gaggctctct agattcgtga aagatgtact agccaaaacg
+      301 ggcgccaaaa aagtagatat tgtggctcat agtatgggtg gtgcgaacac gttatactat
+      361 attaaaaacc tagacggcgg agataaaatt gaaaacgtcg tcacacttgg tggagcgaat
+      421 ggactcgtat cactcagagc attaccaggc accgatccaa atcaaaaaat tctttacaca
+      481 tctgtctata gttcagccga tctcattgtc gtcaacagcc tctcacgttt aattggcgcg
+      541 agaaacgtcc tcatccacgg cgttggacat atcggtctat taacctcaag ccaagtcaaa
+      601 ggctatgtga aagaaggatt gaatggcgga ggacaaaata cgaatc
+//
+

@@ -1,0 +1,68 @@
+LOCUS       GQ227702                 954 bp    DNA     linear   BCT 18-APR-2011
+DEFINITION  Acinetobacter sp. XMZ-26 lipase (lipA2) gene, complete cds.
+ACCESSION   GQ227702
+VERSION     GQ227702.1
+KEYWORDS    .
+SOURCE      Acinetobacter sp. XMZ-26
+  ORGANISM  Acinetobacter sp. XMZ-26
+            Bacteria; Pseudomonadati; Pseudomonadota; Gammaproteobacteria;
+            Moraxellales; Moraxellaceae; Acinetobacter.
+REFERENCE   1  (bases 1 to 954)
+  AUTHORS   Zheng,X., Chu,X., Zhang,W., Wu,N. and Fan,Y.
+  TITLE     A novel cold-adapted lipase from Acinetobacter sp. XMZ-26: gene
+            cloning and characterisation
+  JOURNAL   Appl. Microbiol. Biotechnol. 90 (3), 971-980 (2011)
+   PUBMED   21336927
+REFERENCE   2  (bases 1 to 954)
+  AUTHORS   Zheng,X. and Wu,N.
+  TITLE     Characterization of a new cold-adapted lipase in Acinetobacter sp.
+            XMZ-26 isolated from Xinjiang glacier soils
+  JOURNAL   Unpublished
+REFERENCE   3  (bases 1 to 954)
+  AUTHORS   Zheng,X. and Wu,N.
+  TITLE     Direct Submission
+  JOURNAL   Submitted (01-JUN-2009) Chinese Academy of Agricultural Sciences,
+            Biotechnology Research Institute, 12 Zhongguancun South Street,
+            Beijing 100081, China
+FEATURES             Location/Qualifiers
+     source          1..954
+                     /organism="Acinetobacter sp. XMZ-26"
+                     /mol_type="genomic DNA"
+                     /strain="XMZ-26"
+                     /isolation_source="Xinjiang Glacier soil"
+                     /db_xref="taxon:752244"
+                     /geo_loc_name="China: Xinjiang Province"
+     gene            1..954
+                     /gene="lipA2"
+     CDS             1..954
+                     /gene="lipA2"
+                     /note="LipA2"
+                     /codon_start=1
+                     /transl_table=11
+                     /product="lipase"
+                     /protein_id="ADF42074.1"
+                     /translation="MTQQSSMHYRLSEEMQSLVYWSSIYSPADDDIDSIRAAYDAMCL
+                     HYTLPRDGTVNIEDKTVPQLNHPVNVRLYSPLGEAPATGWPCILYLHGGGWMVGNLDS
+                     HEFITRYLCRDLNVAVLSVDYRLTPEHHFPAAYEDCETVYHWLYQHGLQWKINPNQIV
+                     LMGDSAGGNLAAALAVQLQHTGAQACGLAMIYPCLSSGFDTASCQQQADAPLLSLADM
+                     HDYLQAYAPNTSDWQDLRLSPLLAQDFSDMPRSFIAVAEYDPLSDDGRIFADKLKQAN
+                     IATEFYLGKGLLHGSLRLVRDCPVVQDLYQRMLSSLKPMFN"
+ORIGIN      
+        1 atgacacaac aatcgagcat gcactataga ttgagtgaag aaatgcaaag tctggtgtat
+       61 tggagcagca tttattcacc tgcggatgac gatatcgatt ctattcgggc tgcgtatgat
+      121 gcgatgtgct tacattacac cttaccgcgt gatggtacgg tcaatattga agataaaact
+      181 gtgccgcagc tcaatcatcc agtcaatgtt cggttgtatt caccattggg tgaagcacca
+      241 gcgacaggtt ggccatgtat tttatatctt catggtggcg gttggatggt gggaaatctt
+      301 gattcacatg agtttatcac tcgctattta tgccgtgatt taaatgttgc tgtgctgagt
+      361 gtggattatc gcttaacacc agagcaccat tttccagctg catatgaaga ctgtgaaacg
+      421 gtatatcact ggctctatca acatggcctg caatggaaga ttaatccaaa tcaaattgtt
+      481 ttgatggggg acagtgcggg cggtaattta gcggctgcac ttgcagtgca attacaacat
+      541 acaggggctc aagcctgtgg tctggcaatg atttatccat gtttgagtag tggttttgat
+      601 acggcatctt gtcagcagca agcagatgca ccgttactgt cgctagcgga tatgcatgat
+      661 tacttgcaag cctatgcgcc aaatacaagc gactggcagg acttacgttt atcaccactg
+      721 ttggcacagg atttttccga tatgccccgt agttttattg ccgtcgctga gtatgaccct
+      781 ctcagtgatg atgggcgtat ttttgctgac aagttaaaac aggccaatat tgcaaccgaa
+      841 ttttatctcg gtaaaggatt actacatggc agtttgcgtt tagtacgtga ctgtcctgtg
+      901 gtgcaagatt tatatcagcg catgctgagt tcgttaaagc caatgttcaa ttga
+//
+
