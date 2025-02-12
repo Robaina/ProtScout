@@ -1,0 +1,96 @@
+[tool.poetry]
+name = "proteinrank"
+version = "0.1.0"
+description = "A Python package to rank protein sequences based on a suite of AI-predicted protein properties"
+authors = ["Semidán Robaina-Estévez <semidan.robaina@gmail.com>"]
+license = "GPL-3.0"
+readme = "README.md"
+packages = [{ include = "proteinrank", from = "src" }]
+homepage = "https://github.com/Robaina/ProteinRank"
+repository = "https://github.com/Robaina/ProteinRank"
+documentation = "https://github.com/Robaina/ProteinRank"
+keywords = [
+    "protein-engineering",
+    "protein-design",
+    "machine-learning",
+    "bioinformatics",
+    "computational-biology",
+    "protein-properties",
+    "protein-ranking",
+    "sequence-analysis",
+    "deep-learning",
+    "protein-stability",
+    "enzyme-engineering",
+    "protein-language-models",
+    "protein-structure",
+    "protein-optimization",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+numpy = "^1.24.0"
+pandas = "^2.0.0"
+torch = "^2.0.0"
+biopython = "^1.81"
+scikit-learn = "^1.3.0"
+transformers = "^4.30.0"
+biotite = "^0.37.0"
+requests = "^2.31.0"
+tqdm = "^4.65.0"
+pydantic = "^2.0.0"
+typer = "^0.9.0"
+rich = "^13.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+pytest-cov = "^4.1.0"
+black = "^23.3.0"
+isort = "^5.12.0"
+mypy = "^1.4.0"
+ruff = "^0.0.275"
+pre-commit = "^3.3.3"
+mkdocs = "^1.4.3"
+mkdocs-material = "^9.1.18"
+mkdocstrings = { extras = ["python"], version = "^0.22.0" }
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+proteinrank = "proteinrank.cli:app"
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+[tool.ruff]
+select = ["E", "F", "B", "I"]
+ignore = ["E501"]
+line-length = 88
+target-version = "py38"

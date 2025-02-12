@@ -1,0 +1,11 @@
+**/.DS_store
+**/*~
+**/.ipynb_checkpoints
+*.csv
+*.ipynb
+backup
+env
+gitcommands.sh
+run_ephod.sh
+models/*
+**/__pycache__/*
