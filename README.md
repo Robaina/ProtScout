@@ -1,5 +1,3 @@
-# ProteinRank
-
 <div style="text-align: center; width: 100%">
     <img src="imgs/proteinrank_logo.png" max-width=400px height="auto">
 </div>
