@@ -73,12 +73,12 @@ rankings = ranker.rank(sequences)
 
 | Predictor | Input Requirements | Properties Predicted | Model Base |
 |-----------|-------------------|---------------------|------------|
-| KineticPredictor | Sequences, SMILES | kcat, KM, Ki | ESM-2 |
+| KineticPredictor (CatPred) | Sequences, SMILES | kcat, KM, Ki | esm2_t33_650M_UR50D |
 | KMpredictor | Sequences, SMILES | KM | ESM-2 |
 | AffinityGNINApredictor | Sequences, PDB files, SDF | Binding Affinity | GNINA |
 | DeepStabPtmPredictor | Sequences | Melting Temperature | Prot-T5-XL |
 | ThermostabilityPredictor | Sequences | Thermostability | ProtBERT |
-| GeoPocPredictor | Sequences, (optional PDBs) | Temperature, pH, Salt | ESM-2 |
+| GeoPocPredictor | Sequences, (optional PDBs) | Temperature, pH, Salt | esm2_t36_3B_UR50D |
 | SolubilityGATSolPredictor | Sequences, PDB files | Solubility | ESM-1b |
 | EpHodPredictor | Sequences | Optimal pH | ESM-1v |
 
