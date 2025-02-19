@@ -1,10 +1,10 @@
 <div style="text-align: center; width: 100%">
-    <img src="imgs/proteinrank_logo.png" max-width=400px height="auto">
+    <img src="imgs/protscout_logo.png" max-width=400px height="auto">
 </div>
 
 ## 🎯 About
 
-ProteinRank is a Python package that enables ranking of protein sequences based on multiple properties predicted by state-of-the-art AI models. It provides a unified interface to assess and compare proteins using various characteristics such as stability, solubility, and catalytic efficiency.
+ProtScout is a Python package that enables ranking of protein sequences based on multiple properties predicted by state-of-the-art AI models. It provides a unified interface to assess and compare proteins using various characteristics such as stability, solubility, and catalytic efficiency.
 
 ## ✨ Features
 
@@ -18,21 +18,21 @@ ProteinRank is a Python package that enables ranking of protein sequences based 
 ## 🛠️ Installation
 
 ```bash
-pip install proteinrank
+pip install protscout
 ```
 
 Or install from source using Poetry:
 
 ```bash
-git clone https://github.com/Robaina/ProteinRank
-cd proteinrank
+git clone https://github.com/Robaina/ProtScout
+cd protscout
 poetry install
 ```
 
 ## 🚀 Quick Start
 
 ```python
-from proteinrank import ProteinRanker
+from protscout import ProteinRanker
 
 # Initialize a combined predictor with custom weights
 ranker = ProteinRanker(
@@ -94,7 +94,7 @@ rankings = ranker.rank(sequences)
 
 ## 📚 Documentation
 
-For detailed documentation, visit [proteinrank.readthedocs.io](https://proteinrank.readthedocs.io)
+For detailed documentation, visit [protscout.readthedocs.io](https://protscout.readthedocs.io)
 
 ## 🤝 Contributing
 

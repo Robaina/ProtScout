@@ -1,14 +1,14 @@
 [tool.poetry]
-name = "proteinrank"
+name = "protscout"
 version = "0.1.0"
 description = "A Python package to rank protein sequences based on a suite of AI-predicted protein properties"
 authors = ["Semidán Robaina-Estévez <semidan.robaina@gmail.com>"]
 license = "GPL-3.0"
 readme = "README.md"
-packages = [{ include = "proteinrank", from = "src" }]
-homepage = "https://github.com/Robaina/ProteinRank"
-repository = "https://github.com/Robaina/ProteinRank"
-documentation = "https://github.com/Robaina/ProteinRank"
+packages = [{ include = "protscout", from = "src" }]
+homepage = "https://github.com/Robaina/ProtScout"
+repository = "https://github.com/Robaina/ProtScout"
+documentation = "https://github.com/Robaina/ProtScout"
 keywords = [
     "protein-engineering",
     "protein-design",
@@ -70,7 +70,7 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-proteinrank = "proteinrank.cli:app"
+protscout = "protscout.cli:app"
 
 [tool.black]
 line-length = 88
