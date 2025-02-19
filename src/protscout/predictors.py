@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from proteinrank.predictor_helpers import minimize_gnina_affinity
+from proteus.fitness_helpers import minimize_gnina_affinity
 
 
 class Predictor:
@@ -49,6 +49,10 @@ class Predictor:
         """
         raise NotImplementedError("Subclasses should implement this method")
 
+    def __str__(self):
+        """String representation of the predictor."""
+        return f"{self.__class__.__name__}(weight={self.weight})"
+
 
 class CombinedPredictor(Predictor):
     """
@@ -69,6 +73,9 @@ class CombinedPredictor(Predictor):
         assert len(predictors) == len(
             weights
         ), "The number of predictors and weights must match"
+        super().__init__(
+            weight=1, requires_pdbs=any(p.requires_pdbs for p in predictors)
+        )
         self.predictors = predictors
         self.weights = weights
 
@@ -91,7 +98,7 @@ class CombinedPredictor(Predictor):
         """
         combined_scores = None
         for predictor, weight in zip(self.predictors, self.weights):
-            scores = predictor.infer_fitness(sequences, generation_id)
+            scores = predictor.infer_fitness(sequences, pdb_files, generation_id)
             weighted_scores = scores * weight
             if combined_scores is None:
                 combined_scores = weighted_scores
@@ -99,204 +106,9 @@ class CombinedPredictor(Predictor):
                 combined_scores += weighted_scores
         return combined_scores
 
-
-class KMpredictor(Predictor):
-    """
-    A class to predict KM values for given protein sequences using a Docker-based tool.
-    """
-
-    def __init__(self, substrate: str, data_dir: str, weight: float = 1):
-        """
-        Initializes the KMpredictor with protein sequences and substrate.
-
-        Args:
-            substrate (str): SMILES or INCHI string for the substrate of the input enzymes.
-            data_dir (str): Path to the directory containing necessary data and model files for the prediction.
-            weight (float): Weight for the KM values predicted by this predictor in the combined score.
-        """
-        super().__init__()
-        self.substrate = substrate
-        self.data_dir = data_dir
-        self.weight = weight
-
-    def infer_fitness(
-        self,
-        sequences: List[str],
-        pdb_files: List[str] = None,
-        generation_id: str = "",
-    ) -> List[float]:
-        """
-        Predicts KM values using the initialized protein sequences and substrate.
-
-        Args:
-            sequences (List[str]): A list of protein sequences for which KM values are to be predicted.
-            pdb_files (List[str]): A list of paths to PDB files corresponding to the input sequences.
-            generation_id (str): Identifier for the generation of sequences.
-
-        Returns:
-            List[float]: A list of predicted KM values corresponding to the input protein sequences.
-        """
-        # Create temporary files for input sequences and output KM values
-        input_sequences_path = self.data_dir
-        input_filename = f"input_{uuid.uuid4()}.txt"
-        output_values_path = self.data_dir
-
-        # Write the protein sequences to the temporary input file
-        with open(os.path.join(input_sequences_path, input_filename), "w") as seq_file:
-            for sequence in sequences:
-                seq_file.write(sequence + "\n")
-
-        # Construct the Docker run command
-        docker_command = [
-            "docker",
-            "run",
-            "--rm",
-            "-v",
-            f"{self.data_dir}:/app/data",
-            "-v",
-            f"{input_sequences_path}:/app/input",
-            "-v",
-            f"{output_values_path}:/app/output",
-            "ghcr.io/new-atlantis-labs/predict_km_values_cpu:latest",
-            "--input_sequences",
-            f"/app/input/{input_filename}",
-            "--substrate",
-            self.substrate,
-            "--data_dir",
-            "/app/data",
-            "--out_embeddings",
-            "/app/output/embeddings.pt",
-            "--out_values",
-            "/app/output/kmvalues.pt",
-        ]
-
-        # Run the Docker command
-        subprocess.run(docker_command, check=True)
-
-        # Read the KM values from the output file
-        KM_values = torch.load(f"{output_values_path}/kmvalues.pt")
-
-        # Remove the temporary input and output files
-        os.remove(os.path.join(input_sequences_path, input_filename))
-        os.remove(f"{output_values_path}/kmvalues.pt")
-
-        return 1 / KM_values.unsqueeze(0).transpose(0, 1)
-
-
-class DeepStabPtmPredictor(Predictor):
-    """
-    A class to predict melting temperature (Tm) for given protein sequences using a Docker-based tool.
-    """
-
-    def __init__(
-        self,
-        model_dir: str,
-        parent_temp_dir: str = None,
-        growth_temp: int = 37,
-        mt_mode: str = "Lysate",
-        weight: float = 1,
-        docker_image: str = None,
-    ):
-        """
-        Initializes the DeepStabPtmPredictor
-
-        Args:
-            model_dir (str): Path to the directory containing necessary data and model files for the prediction.
-            parent_temp_dir (str): Path to the parent directory for temporary files. If None, uses the directory of this module.
-            growth_temp (int): Growth temperature for the protein sequences.
-            mt_mode (str): Mode for melting temperature prediction (Lysate or Purified).
-            weight (float): Weight for the TM values predicted by this predictor in the combined score.
-            docker_image (str): Docker image for the DeepStabP tool.
-        """
-        super().__init__()
-        self.model_dir = model_dir
-        self.parent_temp_dir = parent_temp_dir or os.path.dirname(
-            os.path.abspath(__file__)
-        )
-        self.growth_temp = growth_temp
-        self.mt_mode = mt_mode
-        self.weight = weight
-        self.docker_image = (
-            docker_image
-            if docker_image is not None
-            else "ghcr.io/new-atlantis-labs/deepstabp:latest"
-        )
-
-    def _create_temp_dir(self):
-        """Creates a unique temporary directory."""
-        unique_id = str(uuid.uuid4())
-        temp_dir = os.path.join(self.parent_temp_dir, f"deepstabp_temp_{unique_id}")
-        os.makedirs(temp_dir, exist_ok=True)
-        return temp_dir
-
-    def infer_fitness(
-        self,
-        sequences: List[str],
-        pdb_files: List[str] = None,
-        generation_id: str = "",
-    ) -> torch.Tensor:
-        """
-        Predicts TM values of protein sequences
-
-        Args:
-            sequences (List[str]): A list of protein sequences for which TM values are to be predicted.
-            pdb_files (List[str]): A list of paths to PDB files corresponding to the input sequences.
-            generation_id (str): Identifier for the generation of sequences (not used in this predictor).
-
-        Returns:
-            torch.Tensor: A tensor of predicted TM values corresponding to the input protein sequences.
-        """
-        temp_dir = self._create_temp_dir()
-        try:
-            input_filename = f"input_{uuid.uuid4()}.txt"
-            input_file_path = os.path.join(temp_dir, input_filename)
-            output_file_path = os.path.join(temp_dir, "tmvalues.csv")
-
-            # Write the protein sequences to the temporary input file
-            with open(input_file_path, "w") as seq_file:
-                for n, sequence in enumerate(sequences):
-                    header = f">seq_{n}"
-                    seq_file.write(header + "\n" + sequence + "\n")
-
-            # Construct the Docker run command
-            docker_command = [
-                "docker",
-                "run",
-                "--rm",
-                "-v",
-                f"{self.model_dir}:/app/model_data",
-                "-v",
-                f"{temp_dir}:/app/data",
-                f"{self.docker_image}",
-                "--fasta_file",
-                f"/app/data/{input_filename}",
-                "--growth_temp",
-                f"{self.growth_temp}",
-                "--mt_mode",
-                f"{self.mt_mode}",
-                "--output_csv",
-                "/app/data/tmvalues.csv",
-                "--deepstabp_path",
-                "trained_model/epoch=1-step=2316.ckpt",
-                "--prot_t5_xl_dir",
-                "/app/model_data/model",
-                "--tokenizer_dir",
-                "/app/model_data/tokenizer",
-            ]
-
-            # Run the Docker command
-            subprocess.run(docker_command, check=True)
-
-            # Read the TM values from the output file
-            dataframe = pd.read_csv(output_file_path)
-            tm_values = dataframe["Tm"]
-            tm_tensor = torch.tensor(tm_values.values)
-
-            return tm_tensor.unsqueeze(0).transpose(0, 1)
-
-        finally:
-            # Clean up the temporary directory
-            shutil.rmtree(temp_dir, ignore_errors=True)
+    def __str__(self):
+        """String representation of the combined predictor."""
+        return f"CombinedPredictor(predictors={len(self.predictors)})"
 
 
 class AffinityGNINApredictor(Predictor):
@@ -328,19 +140,17 @@ class AffinityGNINApredictor(Predictor):
             save_directory (str): Path to the directory to save the output files.
             gnina_docker_image (str): Docker image for the Gnina tool.
         """
-        super().__init__()
+        super().__init__(weight=weight, requires_pdbs=requires_pdbs)
         self.ligand_sdf = ligand_sdf
         self.parent_temp_dir = parent_temp_dir or os.path.dirname(
             os.path.abspath(__file__)
         )
-        self.weight = weight
         self.device = device
         self.suppress_warnings = suppress_warnings
         if save_directory and not os.path.exists(save_directory):
             os.makedirs(save_directory, exist_ok=True)
         self.save_directory = save_directory
         self.gnina_docker_image = gnina_docker_image
-        self.requires_pdbs = requires_pdbs
 
     def infer_fitness(
         self,
@@ -353,8 +163,8 @@ class AffinityGNINApredictor(Predictor):
 
         Args:
             sequences (List[str]): A list of protein sequences for which binding affinity values are to be predicted.
-            generation_id (str): Identifier for the generation of sequences.
             pdb_files (List[str]): A list of paths to PDB files corresponding to the input sequences.
+            generation_id (str): Identifier for the generation of sequences.
 
         Returns:
             torch.Tensor: A tensor of predicted binding affinity values corresponding to the input protein sequences.
@@ -387,8 +197,12 @@ class AffinityGNINApredictor(Predictor):
             min_affinity = min(res["Affinity"])
             affinities.append(min_affinity)
 
-        affinities_tensor = torch.tensor(affinities).unsqueeze(0).transpose(0, 1)
+        affinities_tensor = torch.tensor(affinities).unsqueeze(1)
         return -1 * affinities_tensor
+
+    def __str__(self):
+        """String representation of the AffinityGNINA predictor."""
+        return f"AffinityGNINApredictor(device={self.device}, weight={self.weight})"
 
 
 class KineticPredictor(Predictor):
@@ -426,12 +240,11 @@ class KineticPredictor(Predictor):
             docker_image (str): Docker image name for the CatPred tool.
             verbose (bool): If True, show docker command outputs. If False, suppress all outputs.
         """
-        super().__init__()
+        super().__init__(weight=weight, requires_pdbs=False)
         self.substrate_smiles = substrate_smiles
         self.substrate_name = substrate_name
         self.weights_dir = weights_dir
         self.parameter = parameter
-        self.weight = weight
         self.device = device
         self.parent_temp_dir = parent_temp_dir or os.path.dirname(
             os.path.abspath(__file__)
@@ -568,14 +381,15 @@ class KineticPredictor(Predictor):
 
             # Convert predictions to tensor
             predictions = torch.tensor(predictions_df[target_col].values)
-            return predictions.unsqueeze(0).transpose(0, 1)
+            return predictions.unsqueeze(1)
 
         finally:
             # Clean up temporary directory
             shutil.rmtree(temp_dir, ignore_errors=True)
 
     def __str__(self):
-        return f"KineticPredictor(parameter={self.parameter}, device={self.device})"
+        """String representation of the Kinetic predictor."""
+        return f"KineticPredictor(parameter={self.parameter}, device={self.device}, weight={self.weight})"
 
 
 class ThermostabilityPredictor(Predictor):
@@ -604,8 +418,7 @@ class ThermostabilityPredictor(Predictor):
             docker_image (str): Docker image name for the TemBERTure tool.
             verbose (bool): If True, show docker command outputs. If False, suppress all outputs.
         """
-        super().__init__()
-        self.weight = weight
+        super().__init__(weight=weight, requires_pdbs=False)
         self.device = device
         self.parent_temp_dir = parent_temp_dir or os.path.dirname(
             os.path.abspath(__file__)
@@ -707,172 +520,15 @@ class ThermostabilityPredictor(Predictor):
 
             # Convert to tensor
             predictions = torch.tensor(average_tm)
-            return predictions.unsqueeze(0).transpose(0, 1)
+            return predictions.unsqueeze(1)
 
         finally:
             # Clean up temporary directory
             shutil.rmtree(temp_dir, ignore_errors=True)
 
     def __str__(self):
-        return f"ThermostabilityPredictor(device={self.device})"
-
-
-class EpHodPredictor(Predictor):
-    """
-    A class to predict optimal pH for protein sequences using EpHod.
-    This predictor implements the EpHod model which outputs three predictions
-    (RLATtr, SVR, and Ensemble) and returns their mean as the final prediction.
-    """
-
-    def __init__(
-        self,
-        weight: float = 1,
-        device: str = "cuda",
-        weights_dir: str = None,
-        parent_temp_dir: str = None,
-        docker_image: str = "ephod:latest",
-        verbose: bool = False,
-    ):
-        """
-        Initializes the EpHodPredictor with necessary parameters.
-
-        Args:
-            weight (float): Weight for the values predicted by this predictor in the combined score.
-            device (str): Computation device ('cuda' or 'cpu').
-            parent_temp_dir (str): Path to the parent directory for temporary files.
-                                 If None, uses the current working directory.
-            docker_image (str): Docker image name for the EpHod tool.
-            verbose (bool): If True, show docker command outputs. If False, suppress all outputs.
-        """
-        super().__init__()
-        self.weight = weight
-        self.device = device
-        self.weights_dir = weights_dir
-        self.parent_temp_dir = parent_temp_dir or os.getcwd()
-        self.docker_image = docker_image
-        self.verbose = verbose
-
-    def _create_temp_dir(self):
-        """Creates a unique temporary directory for input/output files."""
-        unique_id = str(uuid.uuid4())
-        temp_dir = os.path.join(self.parent_temp_dir, f"ephod_temp_{unique_id}")
-        input_dir = os.path.join(temp_dir, "input")
-        output_dir = os.path.join(temp_dir, "output")
-        os.makedirs(input_dir, exist_ok=True)
-        os.makedirs(output_dir, exist_ok=True)
-        return temp_dir, input_dir, output_dir
-
-    def _prepare_input_file(self, sequences: List[str], input_dir: str) -> str:
-        """
-        Prepares the input FASTA file for EpHod.
-
-        Args:
-            sequences (List[str]): List of protein sequences to predict.
-            input_dir (str): Directory to save the input file.
-
-        Returns:
-            str: Path to the created input file.
-        """
-        input_file = os.path.join(input_dir, "input_sequences.fasta")
-
-        with open(input_file, "w") as f:
-            for i, seq in enumerate(sequences, 1):
-                f.write(f">seq{i}\n{seq}\n")
-
-        return input_file
-
-    def infer_fitness(
-        self,
-        sequences: List[str],
-        pdb_files: List[str] = None,
-        generation_id: str = "",
-    ) -> torch.Tensor:
-        """
-        Predicts optimal pH using EpHod for the given sequences.
-        Returns the mean of RLATtr, SVR, and Ensemble predictions.
-
-        Args:
-            sequences (List[str]): A list of protein sequences to evaluate.
-            pdb_files (List[str]): A list of paths to PDB files (not used in this predictor).
-            generation_id (str): Identifier for the generation of sequences.
-
-        Returns:
-            torch.Tensor: Predicted optimal pH values as a tensor (mean of the three predictions).
-        """
-        temp_dir, input_dir, output_dir = self._create_temp_dir()
-        try:
-            input_file = self._prepare_input_file(sequences, input_dir)
-            output_file = os.path.join(output_dir, "predictions.csv")
-
-            # Construct Docker command
-            docker_command = ["docker", "run", "--rm"]
-
-            # Add GPU flag if using CUDA
-            if self.device == "cuda":
-                docker_command.extend(["--gpus", "all"])
-
-            # Create list of volume mounts
-            volume_mounts = [
-                "-v",
-                f"{input_dir}:/input",
-                "-v",
-                f"{output_dir}:/output",
-            ]
-
-            # Add weights directory to volume mounts if specified
-            if self.weights_dir is not None:
-                volume_mounts.extend(["-v", f"{self.weights_dir}:/weights"])
-
-            # Add volume mounts to command
-            docker_command.extend(volume_mounts)
-
-            # Add command arguments
-            command_args = [
-                self.docker_image,
-                "--fasta_path",
-                "/input/input_sequences.fasta",
-                "--save_dir",
-                "/output",
-                "--csv_name",
-                "predictions.csv",
-                "--verbose",
-                "0",
-            ]
-
-            # Add weights directory argument if specified
-            if self.weights_dir is not None:
-                command_args.extend(["--weights_dir", "/weights"])
-
-            docker_command.extend(command_args)
-
-            # Run the Docker command
-            if self.verbose:
-                subprocess.run(docker_command, check=True)
-            else:
-                with open(os.devnull, "w") as devnull:
-                    subprocess.run(
-                        docker_command,
-                        check=True,
-                        stdout=devnull,
-                        stderr=subprocess.STDOUT,
-                    )
-
-            # Read predictions and compute mean
-            predictions_df = pd.read_csv(output_file)
-            prediction_columns = ["RLATtr", "SVR", "Ensemble"]
-            ph_values = predictions_df[prediction_columns].values
-            mean_ph = np.mean(ph_values, axis=1)
-
-            # Convert to tensor
-            predictions = torch.tensor(mean_ph, dtype=torch.float32)
-            return predictions.unsqueeze(0).transpose(0, 1)
-
-        finally:
-            # Clean up temporary directory
-            shutil.rmtree(temp_dir, ignore_errors=True)
-
-    def __str__(self):
-        return f"EpHodPredictor(device={self.device})"
+        """String representation of the Thermostability predictor."""
+        return f"ThermostabilityPredictor(device={self.device}, weight={self.weight})"
 
 
 class SolubilityGATSolPredictor(Predictor):
@@ -906,8 +562,7 @@ class SolubilityGATSolPredictor(Predictor):
             esm_weights_dir (str, optional): Directory containing ESM model weights.
             gatsol_weights_dir (str): Directory containing GATSol model weights.
         """
-        super().__init__()
-        self.weight = weight
+        super().__init__(weight=weight, requires_pdbs=requires_pdbs)
         self.device = device
         self.verbose = verbose
         self.parent_temp_dir = parent_temp_dir or os.path.dirname(
@@ -919,7 +574,6 @@ class SolubilityGATSolPredictor(Predictor):
         self.save_directory = save_directory
 
         self.docker_image = docker_image
-        self.requires_pdbs = requires_pdbs
         self.esm_weights_dir = esm_weights_dir
         self.gatsol_weights_dir = gatsol_weights_dir
 
@@ -934,44 +588,27 @@ class SolubilityGATSolPredictor(Predictor):
         os.makedirs(temp_dir, exist_ok=True)
         return temp_dir
 
-    def _validate_pdb_files(
-        self, sequence_ids: List[str], pdb_files: List[str]
-    ) -> None:
+    def _generate_sequence_ids(
+        self, sequences: List[str], pdb_files: List[str] = None
+    ) -> List[str]:
         """
-        Validates that there is a corresponding PDB file for each sequence ID.
+        Generates sequence IDs either from PDB files or sequentially.
 
         Args:
-            sequence_ids (List[str]): List of sequence identifiers
-            pdb_files (List[str]): List of PDB file paths
+            sequences (List[str]): A list of protein sequences.
+            pdb_files (List[str], optional): A list of paths to PDB files.
 
-        Raises:
-            ValueError: If PDB files are missing for any sequence or if there are mismatches
+        Returns:
+            List[str]: A list of unique sequence IDs.
         """
-        if not pdb_files:
-            raise ValueError("No PDB files provided")
-
-        # Extract base names without extension for comparison
-        pdb_basenames = [
-            os.path.splitext(os.path.basename(pdb))[0] for pdb in pdb_files
-        ]
-
-        # Check for missing PDB files
-        missing_pdbs = set(sequence_ids) - set(pdb_basenames)
-        if missing_pdbs:
-            raise ValueError(f"Missing PDB files for sequence IDs: {missing_pdbs}")
-
-        # Check for extra PDB files
-        extra_pdbs = set(pdb_basenames) - set(sequence_ids)
-        if extra_pdbs:
-            raise ValueError(
-                f"Found extra PDB files not matching any sequence ID: {extra_pdbs}"
-            )
+        if pdb_files and len(pdb_files) == len(sequences):
+            return [os.path.splitext(os.path.basename(pdb))[0] for pdb in pdb_files]
+        return [f"seq{i+1}" for i in range(len(sequences))]
 
     def infer_fitness(
         self,
         sequences: List[str],
-        sequence_ids: List[str],
-        pdb_files: Optional[List[str]] = None,
+        pdb_files: List[str] = None,
         generation_id: str = "",
     ) -> torch.Tensor:
         """
@@ -979,37 +616,30 @@ class SolubilityGATSolPredictor(Predictor):
 
         Args:
             sequences (List[str]): A list of protein sequences for which solubility is to be predicted.
-            sequence_ids (List[str]): A list of unique identifiers for each sequence.
-            pdb_files (List[str], optional): A list of paths to PDB files corresponding to the input sequences.
-                                           The basename of each PDB file (without extension) should match
-                                           its corresponding sequence_id.
+            pdb_files (List[str]): A list of paths to PDB files corresponding to the input sequences.
             generation_id (str): Identifier for the generation of sequences.
 
         Returns:
             torch.Tensor: A tensor of predicted solubility values corresponding to the input protein sequences.
 
         Raises:
-            ValueError: If the number of sequences and sequence_ids don't match, or if required PDB files
-                      are missing or don't correspond to sequence IDs.
+            ValueError: If required PDB files are missing when requires_pdbs is True.
         """
-        # Validate inputs
-        if len(sequences) != len(sequence_ids):
-            raise ValueError("Number of sequences must match number of sequence IDs")
+        # Generate sequence IDs from PDB files or sequentially
+        sequence_ids = self._generate_sequence_ids(sequences, pdb_files)
 
-        if len(set(sequence_ids)) != len(sequence_ids):
-            raise ValueError("Sequence IDs must be unique")
-
-        if self.requires_pdbs:
-            if not pdb_files:
-                raise ValueError("PDB files are required but none were provided")
-            self._validate_pdb_files(sequence_ids, pdb_files)
+        # Validate PDB files if required
+        if self.requires_pdbs and (not pdb_files or len(pdb_files) != len(sequences)):
+            raise ValueError(
+                "PDB files are required but not provided for all sequences"
+            )
 
         # Create temporary directory
         temp_dir = self._create_temp_dir()
         try:
             temp_dir_path = Path(temp_dir)
 
-            # Create sequences DataFrame with provided IDs
+            # Create sequences DataFrame
             sequence_data = [
                 {"id": seq_id, "sequence": seq}
                 for seq_id, seq in zip(sequence_ids, sequences)
@@ -1033,13 +663,13 @@ class SolubilityGATSolPredictor(Predictor):
             output_dir.mkdir(exist_ok=True)
 
             # Construct Docker command
-            docker_cmd = ["docker", "run", "--rm"]
+            docker_command = ["docker", "run", "--rm"]
 
             # Add GPU flag if using CUDA
             if self.device == "cuda":
-                docker_cmd.extend(["--gpus", "all"])
+                docker_command.extend(["--gpus", "all"])
 
-            docker_cmd.extend(
+            docker_command.extend(
                 [
                     "-v",
                     f"{sequences_file}:/app/sequences.csv",
@@ -1051,16 +681,18 @@ class SolubilityGATSolPredictor(Predictor):
             )
 
             # Mount GATSol weights directory
-            docker_cmd.extend(
+            docker_command.extend(
                 ["-v", f"{self.gatsol_weights_dir}:/app/check_point/best_model"]
             )
 
             # Mount ESM weights directory (optional)
             if self.esm_weights_dir:
-                docker_cmd.extend(["-v", f"{self.esm_weights_dir}:/app/esm_weights"])
+                docker_command.extend(
+                    ["-v", f"{self.esm_weights_dir}:/app/esm_weights"]
+                )
 
             # Add image and command arguments
-            docker_cmd.extend(
+            docker_command.extend(
                 [
                     self.docker_image,
                     "--sequences",
@@ -1077,11 +709,13 @@ class SolubilityGATSolPredictor(Predictor):
             )
 
             if self.esm_weights_dir:
-                docker_cmd.extend(["--esm-weights-dir", "/app/esm_weights"])
+                docker_command.extend(["--esm-weights-dir", "/app/esm_weights"])
 
             # Run Docker container
             try:
-                subprocess.run(docker_cmd, check=True, capture_output=not self.verbose)
+                subprocess.run(
+                    docker_command, check=True, capture_output=not self.verbose
+                )
             except subprocess.CalledProcessError as e:
                 raise RuntimeError(f"Docker container execution failed: {e}")
 
@@ -1097,9 +731,7 @@ class SolubilityGATSolPredictor(Predictor):
             solubility_values = predictions_df["Solubility_hat"].values
 
             # Convert to tensor
-            solubility_tensor = (
-                torch.tensor(solubility_values).unsqueeze(0).transpose(0, 1)
-            )
+            solubility_tensor = torch.tensor(solubility_values).unsqueeze(1)
             return solubility_tensor
 
         finally:
@@ -1107,23 +739,12 @@ class SolubilityGATSolPredictor(Predictor):
             if os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir)
 
-    @property
-    def name(self) -> str:
-        """Returns the name of the predictor."""
-        return "GATSol_Solubility_Predictor"
+    def __str__(self):
+        """String representation of the GATSol predictor."""
+        return f"SolubilityGATSolPredictor(device={self.device}, weight={self.weight})"
 
 
-import os
-import uuid
-import shutil
-import subprocess
-from pathlib import Path
-from typing import List, Optional
-import pandas as pd
-import torch
-
-
-class GeoPocPredictor:
+class GeoPocPredictor(Predictor):
     """
     A class to predict optimal temperature, pH, and salt conditions for proteins using a Docker-based GeoPoc model.
     """
@@ -1141,13 +762,13 @@ class GeoPocPredictor:
         self,
         task: str = "temp",
         weight: float = 1,
+        requires_pdbs: bool = True,
         device: str = "cpu",
         verbose: bool = False,
         save_directory: Optional[str] = None,
         parent_temp_dir: Optional[str] = None,
         docker_image: str = "geopoc/predictor:latest",
         model_weights_dir: Optional[str] = None,
-        pdb_dir: Optional[str] = None,
         gpu_id: str = "0",
     ):
         """
@@ -1156,20 +777,21 @@ class GeoPocPredictor:
         Args:
             task (str): Prediction task - one of "temp" (temperature), "pH", or "salt"
             weight (float): Weight for the predicted values in the combined score
+            requires_pdbs (bool): Whether the predictor requires PDB files for the input sequences
             device (str): Device to use for prediction ("cpu" or "cuda")
             verbose (bool): If True, show docker command outputs
             save_directory (str, optional): Path to save output files
             parent_temp_dir (str, optional): Path to parent directory for temporary files
             docker_image (str): Docker image name for the GeoPoc predictor
             model_weights_dir (str, optional): Directory containing model weights
-            pdb_dir (str, optional): Directory containing PDB files for the proteins
             gpu_id (str): GPU ID to use if device is "cuda"
         """
+        super().__init__(weight=weight, requires_pdbs=requires_pdbs)
+
         if task not in ["temp", "pH", "salt"]:
             raise ValueError("Task must be one of: 'temp', 'pH', 'salt'")
 
         self.task = task
-        self.weight = weight
         self.device = device
         self.verbose = verbose
         self.gpu_id = gpu_id
@@ -1178,13 +800,6 @@ class GeoPocPredictor:
         )
         self.docker_image = docker_image
         self.model_weights_dir = model_weights_dir
-
-        # Handle PDB directory
-        self.pdb_dir = None
-        if pdb_dir:
-            if not os.path.isdir(pdb_dir):
-                raise ValueError(f"PDB directory does not exist: {pdb_dir}")
-            self.pdb_dir = Path(pdb_dir)
 
         if save_directory and not os.path.exists(save_directory):
             os.makedirs(save_directory, exist_ok=True)
@@ -1228,24 +843,24 @@ class GeoPocPredictor:
                 f.write(f">{seq_id}\n{seq}\n")
         os.chmod(fasta_path, 0o777)  # Set permissions for FASTA file
 
-    def _copy_pdb_files(self, sequence_ids: List[str], target_pdb_dir: Path):
+    def _copy_pdb_files(self, pdb_files: List[str], target_pdb_dir: Path):
         """
-        Copies PDB files from the class's pdb_dir to the target directory if they exist.
+        Copies PDB files to the target directory.
 
         Args:
-            sequence_ids (List[str]): List of sequence identifiers
+            pdb_files (List[str]): List of PDB file paths
             target_pdb_dir (Path): Target directory for PDB files
         """
-        if not self.pdb_dir:
+        if not pdb_files:
             return
 
-        # Copy any matching PDB files
-        for seq_id in sequence_ids:
-            pdb_file = self.pdb_dir / f"{seq_id}.pdb"
-            if pdb_file.exists():
-                shutil.copy2(pdb_file, target_pdb_dir)
+        # Copy all provided PDB files
+        for pdb_file in pdb_files:
+            if os.path.exists(pdb_file):
+                file_name = os.path.basename(pdb_file)
+                shutil.copy2(pdb_file, target_pdb_dir / file_name)
                 # Set file permissions to 777
-                os.chmod(str(target_pdb_dir / f"{seq_id}.pdb"), 0o777)
+                os.chmod(str(target_pdb_dir / file_name), 0o777)
 
     def _process_predictions(self, predictions_file: Path) -> torch.Tensor:
         """
@@ -1271,21 +886,32 @@ class GeoPocPredictor:
         return torch.tensor(values).unsqueeze(1).float()
 
     def infer_fitness(
-        self, sequences: List[str], sequence_ids: List[str], generation_id: str = ""
+        self,
+        sequences: List[str],
+        pdb_files: List[str] = None,
+        generation_id: str = "",
     ) -> torch.Tensor:
         """
         Predicts optimal conditions for protein sequences.
 
         Args:
             sequences (List[str]): List of protein sequences
-            sequence_ids (List[str]): List of unique identifiers for each sequence
+            pdb_files (List[str], optional): List of paths to PDB files corresponding to the input sequences
             generation_id (str): Identifier for the generation of sequences
 
         Returns:
             torch.Tensor: Tensor of predicted values
         """
-        if len(sequences) != len(sequence_ids):
-            raise ValueError("Number of sequences must match number of sequence IDs")
+        # Generate sequence IDs if not available from PDB files
+        if pdb_files and self.requires_pdbs:
+            sequence_ids = [
+                os.path.splitext(os.path.basename(pdb))[0] for pdb in pdb_files
+            ]
+            if len(sequences) != len(sequence_ids):
+                raise ValueError("Number of sequences must match number of PDB files")
+        else:
+            # Generate sequential IDs if no PDB files provided
+            sequence_ids = [f"seq{i+1}" for i in range(len(sequences))]
 
         if len(set(sequence_ids)) != len(sequence_ids):
             raise ValueError("Sequence IDs must be unique")
@@ -1300,7 +926,8 @@ class GeoPocPredictor:
             self._create_feature_dirs(feature_path)
 
             # Copy PDB files if available
-            self._copy_pdb_files(sequence_ids, feature_path / "pdb")
+            if pdb_files and self.requires_pdbs:
+                self._copy_pdb_files(pdb_files, feature_path / "pdb")
 
             # Create input directory and FASTA file
             input_dir = temp_dir_path / "input"
@@ -1318,7 +945,7 @@ class GeoPocPredictor:
             os.chmod(str(output_dir), 0o777)  # Set permissions for output directory
 
             # Construct Docker command
-            docker_cmd = [
+            docker_command = [
                 "docker",
                 "run",
                 "--rm",
@@ -1331,12 +958,12 @@ class GeoPocPredictor:
             ]
 
             if self.model_weights_dir:
-                docker_cmd.extend(["-v", f"{self.model_weights_dir}:/app/model"])
+                docker_command.extend(["-v", f"{self.model_weights_dir}:/app/model"])
 
             if self.device == "cuda":
-                docker_cmd.extend(["--gpus", "all"])
+                docker_command.extend(["--gpus", "all"])
 
-            docker_cmd.extend(
+            docker_command.extend(
                 [
                     self.docker_image,
                     "-i",
@@ -1355,7 +982,7 @@ class GeoPocPredictor:
             # Run Docker container
             try:
                 process = subprocess.run(
-                    docker_cmd, check=True, capture_output=True, text=True
+                    docker_command, check=True, capture_output=True, text=True
                 )
                 if self.verbose:
                     print(process.stdout)
@@ -1377,7 +1004,6 @@ class GeoPocPredictor:
             if os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir)
 
-    @property
-    def name(self) -> str:
-        """Returns the name of the predictor."""
-        return f"GeoPoc_{self.task}_Predictor"
+    def __str__(self):
+        """String representation of the GeoPoc predictor."""
+        return f"GeoPocPredictor(task={self.task}, device={self.device}, weight={self.weight})"
