@@ -6,12 +6,26 @@ import subprocess
 import uuid
 from typing import List, Optional
 import shutil
+import logging
+import atexit
 
 import numpy as np
 import pandas as pd
 import torch
 
-from proteus.fitness_helpers import minimize_gnina_affinity
+from .predictor_helpers import minimize_gnina_affinity
+from .docker_container_pool import DockerContainerPool
+
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[logging.StreamHandler()],
+)
+
+# Register cleanup on exit
+atexit.register(DockerContainerPool.get_instance().cleanup)
 
 
 class Predictor:
@@ -113,7 +127,7 @@ class CombinedPredictor(Predictor):
 
 class AffinityGNINApredictor(Predictor):
     """
-    A class to predict binding affinity using a Docker-based tool.
+    A class to predict binding affinity using a Docker-based tool with persistent containers.
     """
 
     def __init__(
@@ -151,6 +165,7 @@ class AffinityGNINApredictor(Predictor):
             os.makedirs(save_directory, exist_ok=True)
         self.save_directory = save_directory
         self.gnina_docker_image = gnina_docker_image
+        self.logger = logging.getLogger(__name__)
 
     def infer_fitness(
         self,
@@ -159,7 +174,7 @@ class AffinityGNINApredictor(Predictor):
         generation_id: str = "",
     ) -> torch.Tensor:
         """
-        Predicts binding affinity values for protein sequences.
+        Predicts binding affinity values for protein sequences using persistent containers.
 
         Args:
             sequences (List[str]): A list of protein sequences for which binding affinity values are to be predicted.
@@ -179,26 +194,37 @@ class AffinityGNINApredictor(Predictor):
             else None
         )
 
+        if docking_outdir and not os.path.exists(docking_outdir):
+            os.makedirs(docking_outdir, exist_ok=True)
+
         affinities = []
         for pdb_file_path in pdb_files:
             # Extract the PDB name from the file name
             pdb_name = os.path.splitext(os.path.basename(pdb_file_path))[0]
 
-            res = minimize_gnina_affinity(
-                pdb_file_no_hetatms=pdb_file_path,
-                ligand_sdf=self.ligand_sdf,
-                docker_image=self.gnina_docker_image,
-                autobox_add=2,
-                cpu_only=True if self.device == "cpu" else False,
-                suppress_warnings=self.suppress_warnings,
-                output_dir=docking_outdir,
-                output_file_name=f"wdock_{pdb_name}.sdf.gz",
-            )
-            min_affinity = min(res["Affinity"])
-            affinities.append(min_affinity)
+            # Use the updated minimize_gnina_affinity function with container pool
+            try:
+                res = minimize_gnina_affinity(
+                    pdb_file_no_hetatms=pdb_file_path,
+                    ligand_sdf=self.ligand_sdf,
+                    docker_image=self.gnina_docker_image,
+                    autobox_add=2,
+                    cpu_only=(self.device == "cpu"),
+                    suppress_warnings=self.suppress_warnings,
+                    output_dir=docking_outdir,
+                    output_file_name=f"wdock_{pdb_name}.sdf.gz",
+                )
+                min_affinity = min(res["Affinity"]) if res["Affinity"] else float("inf")
+                affinities.append(min_affinity)
+            except Exception as e:
+                self.logger.error(f"Error predicting affinity for {pdb_name}: {e}")
+                # Append a default high value (indicating poor binding) in case of error
+                affinities.append(0.0)
 
         affinities_tensor = torch.tensor(affinities).unsqueeze(1)
-        return -1 * affinities_tensor
+        return (
+            -1 * affinities_tensor
+        )  # Negate to make lower (better) affinities have higher fitness scores
 
     def __str__(self):
         """String representation of the AffinityGNINA predictor."""
@@ -251,6 +277,7 @@ class KineticPredictor(Predictor):
         )
         self.docker_image = docker_image
         self.verbose = verbose
+        self.logger = logging.getLogger(__name__)
 
     def _create_temp_dir(self):
         """Creates a unique temporary directory for input/output files."""
@@ -311,58 +338,45 @@ class KineticPredictor(Predictor):
         try:
             input_file = self._prepare_input_file(sequences, input_dir)
 
-            # Construct Docker command
-            docker_command = ["docker", "run", "--rm"]
-
-            # Add GPU flag if using CUDA
-            if self.device == "cuda":
-                docker_command.extend(["--gpus", "all"])
-
-            # Create list of volume mounts
-            volume_mounts = [
-                "-v",
-                f"{input_dir}:/input",
-                "-v",
-                f"{output_dir}:/output",
-            ]
+            # Configure volume mounts
+            volume_mounts = [(input_dir, "/input"), (output_dir, "/output")]
 
             # Add weights directory to volume mounts if specified
             if self.weights_dir is not None:
-                volume_mounts.extend(["-v", f"{self.weights_dir}:/weights"])
+                volume_mounts.append((self.weights_dir, "/weights"))
 
-            # Add volume mounts to command
-            docker_command.extend(volume_mounts)
-
-            # Add volume mounts and command parameters
-            docker_command.extend(
-                [
-                    self.docker_image,
-                    "--parameter",
-                    self.parameter,
-                    "--input_file",
-                    f"/input/batch_{self.parameter}.csv",
-                ]
+            # Get or create container
+            container_pool = DockerContainerPool.get_instance()
+            container_id = container_pool.get_container(
+                image_name=self.docker_image,
+                volume_mounts=volume_mounts,
+                gpu=(self.device == "cuda"),
             )
+
+            # Prepare command to execute in container
+            command = [
+                "--parameter",
+                self.parameter,
+                "--input_file",
+                f"/input/batch_{self.parameter}.csv",
+            ]
 
             # Add weights directory if specified
             if self.weights_dir is not None:
-                docker_command.extend(["--weights_dir", "/weights"])
+                command.extend(["--weights_dir", "/weights"])
 
             # Add GPU flag to CatPred command if using CUDA
             if self.device == "cuda":
-                docker_command.append("--use_gpu")
+                command.append("--use_gpu")
 
-            # Run the Docker command
+            # Execute command in the container
             if self.verbose:
-                subprocess.run(docker_command, check=True)
+                container_pool.execute_command(container_id, command)
             else:
                 with open(os.devnull, "w") as devnull:
-                    subprocess.run(
-                        docker_command,
-                        check=True,
-                        stdout=devnull,
-                        stderr=subprocess.STDOUT,
-                        env={**os.environ, "PYTHONWARNINGS": "ignore"},
+                    # Set environment variables to suppress warnings
+                    container_pool.execute_command(
+                        container_id, command, capture_output=True
                     )
 
             # Read the final predictions output file
@@ -425,6 +439,7 @@ class ThermostabilityPredictor(Predictor):
         )
         self.docker_image = docker_image
         self.verbose = verbose
+        self.logger = logging.getLogger(__name__)
 
     def _create_temp_dir(self):
         """Creates a unique temporary directory for input/output files."""
@@ -476,43 +491,35 @@ class ThermostabilityPredictor(Predictor):
         temp_dir, input_dir, output_dir = self._create_temp_dir()
         try:
             input_file = self._prepare_input_file(sequences, input_dir)
-            output_file = os.path.join(output_dir, "predictions.tsv")
 
-            # Construct Docker command
-            docker_command = ["docker", "run", "--rm"]
+            # Configure volume mounts
+            volume_mounts = [(input_dir, "/input"), (output_dir, "/output")]
 
-            # Add GPU flag if using CUDA
-            if self.device == "cuda":
-                docker_command.extend(["--gpus", "all"])
-
-            # Add volume mounts
-            docker_command.extend(
-                [
-                    "-v",
-                    f"{input_dir}:/input",
-                    "-v",
-                    f"{output_dir}:/output",
-                    self.docker_image,
-                    "--tm",
-                    "/input/input_sequences.fasta",
-                    "/output/predictions.tsv",
-                ]
+            # Get or create container
+            container_pool = DockerContainerPool.get_instance()
+            container_id = container_pool.get_container(
+                image_name=self.docker_image,
+                volume_mounts=volume_mounts,
+                gpu=(self.device == "cuda"),
             )
 
-            # Run the Docker command
+            # Prepare command to execute in container
+            command = [
+                "--tm",
+                "/input/input_sequences.fasta",
+                "/output/predictions.tsv",
+            ]
+
+            # Execute command in the container
             if self.verbose:
-                subprocess.run(docker_command, check=True)
+                container_pool.execute_command(container_id, command)
             else:
-                with open(os.devnull, "w") as devnull:
-                    subprocess.run(
-                        docker_command,
-                        check=True,
-                        stdout=devnull,
-                        stderr=subprocess.STDOUT,
-                        env={**os.environ, "PYTHONWARNINGS": "ignore"},
-                    )
+                container_pool.execute_command(
+                    container_id, command, capture_output=True
+                )
 
             # Read predictions and compute average
+            output_file = os.path.join(output_dir, "predictions.tsv")
             predictions_df = pd.read_csv(output_file, sep="\t")
             tm_columns = ["tm1", "tm2", "tm3"]
             tm_values = predictions_df[tm_columns].values
@@ -576,6 +583,7 @@ class SolubilityGATSolPredictor(Predictor):
         self.docker_image = docker_image
         self.esm_weights_dir = esm_weights_dir
         self.gatsol_weights_dir = gatsol_weights_dir
+        self.logger = logging.getLogger(__name__)
 
     def _create_temp_dir(self) -> str:
         """
@@ -662,59 +670,47 @@ class SolubilityGATSolPredictor(Predictor):
             )
             output_dir.mkdir(exist_ok=True)
 
-            # Construct Docker command
-            docker_command = ["docker", "run", "--rm"]
+            # Configure volume mounts
+            volume_mounts = [
+                (str(sequences_file), "/app/sequences.csv"),
+                (str(pdb_dir), "/app/pdb_files"),
+                (str(output_dir), "/app/output"),
+                (self.gatsol_weights_dir, "/app/check_point/best_model"),
+            ]
 
-            # Add GPU flag if using CUDA
-            if self.device == "cuda":
-                docker_command.extend(["--gpus", "all"])
-
-            docker_command.extend(
-                [
-                    "-v",
-                    f"{sequences_file}:/app/sequences.csv",
-                    "-v",
-                    f"{pdb_dir}:/app/pdb_files",
-                    "-v",
-                    f"{output_dir}:/app/output",
-                ]
-            )
-
-            # Mount GATSol weights directory
-            docker_command.extend(
-                ["-v", f"{self.gatsol_weights_dir}:/app/check_point/best_model"]
-            )
-
-            # Mount ESM weights directory (optional)
+            # Add ESM weights directory if specified
             if self.esm_weights_dir:
-                docker_command.extend(
-                    ["-v", f"{self.esm_weights_dir}:/app/esm_weights"]
-                )
+                volume_mounts.append((self.esm_weights_dir, "/app/esm_weights"))
 
-            # Add image and command arguments
-            docker_command.extend(
-                [
-                    self.docker_image,
-                    "--sequences",
-                    "/app/sequences.csv",
-                    "--pdb-dir",
-                    "/app/pdb_files",
-                    "--output-dir",
-                    "/app/output",
-                    "--gatsol-weights-dir",
-                    "/app/check_point/best_model",
-                    "--device",
-                    self.device,
-                ]
+            # Get or create container
+            container_pool = DockerContainerPool.get_instance()
+            container_id = container_pool.get_container(
+                image_name=self.docker_image,
+                volume_mounts=volume_mounts,
+                gpu=(self.device == "cuda"),
             )
+
+            # Prepare command to execute
+            command = [
+                "--sequences",
+                "/app/sequences.csv",
+                "--pdb-dir",
+                "/app/pdb_files",
+                "--output-dir",
+                "/app/output",
+                "--gatsol-weights-dir",
+                "/app/check_point/best_model",
+                "--device",
+                self.device,
+            ]
 
             if self.esm_weights_dir:
-                docker_command.extend(["--esm-weights-dir", "/app/esm_weights"])
+                command.extend(["--esm-weights-dir", "/app/esm_weights"])
 
-            # Run Docker container
+            # Execute command in container
             try:
-                subprocess.run(
-                    docker_command, check=True, capture_output=not self.verbose
+                container_pool.execute_command(
+                    container_id, command, capture_output=not self.verbose
                 )
             except subprocess.CalledProcessError as e:
                 raise RuntimeError(f"Docker container execution failed: {e}")
@@ -800,6 +796,7 @@ class GeoPocPredictor(Predictor):
         )
         self.docker_image = docker_image
         self.model_weights_dir = model_weights_dir
+        self.logger = logging.getLogger(__name__)
 
         if save_directory and not os.path.exists(save_directory):
             os.makedirs(save_directory, exist_ok=True)
@@ -944,52 +941,50 @@ class GeoPocPredictor(Predictor):
             output_dir.mkdir(exist_ok=True)
             os.chmod(str(output_dir), 0o777)  # Set permissions for output directory
 
-            # Construct Docker command
-            docker_command = [
-                "docker",
-                "run",
-                "--rm",
-                "-v",
-                f"{input_dir}:/app/GeoPoc/input",
-                "-v",
-                f"{feature_path}:/app/GeoPoc/features",
-                "-v",
-                f"{output_dir}:/app/GeoPoc/output",
+            # Configure volume mounts
+            volume_mounts = [
+                (str(input_dir), "/app/GeoPoc/input"),
+                (str(feature_path), "/app/GeoPoc/features"),
+                (str(output_dir), "/app/GeoPoc/output"),
             ]
 
+            # Add model weights directory if specified
             if self.model_weights_dir:
-                docker_command.extend(["-v", f"{self.model_weights_dir}:/app/model"])
+                volume_mounts.append((self.model_weights_dir, "/app/model"))
 
-            if self.device == "cuda":
-                docker_command.extend(["--gpus", "all"])
-
-            docker_command.extend(
-                [
-                    self.docker_image,
-                    "-i",
-                    "/app/GeoPoc/input/sequences_clean.fasta",
-                    "--feature_path",
-                    "/app/GeoPoc/features/",
-                    "-o",
-                    "/app/GeoPoc/output/",
-                    "--task",
-                    self.task,
-                    "--gpu",
-                    self.gpu_id if self.device == "cuda" else "-1",
-                ]
+            # Get or create container
+            container_pool = DockerContainerPool.get_instance()
+            container_id = container_pool.get_container(
+                image_name=self.docker_image,
+                volume_mounts=volume_mounts,
+                gpu=(self.device == "cuda"),
             )
 
-            # Run Docker container
+            # Prepare command to execute
+            command = [
+                "-i",
+                "/app/GeoPoc/input/sequences_clean.fasta",
+                "--feature_path",
+                "/app/GeoPoc/features/",
+                "-o",
+                "/app/GeoPoc/output/",
+                "--task",
+                self.task,
+                "--gpu",
+                self.gpu_id if self.device == "cuda" else "-1",
+            ]
+
+            # Execute command in container
             try:
-                process = subprocess.run(
-                    docker_command, check=True, capture_output=True, text=True
+                result = container_pool.execute_command(
+                    container_id, command, capture_output=not self.verbose
                 )
                 if self.verbose:
-                    print(process.stdout)
-                    print(process.stderr)
+                    print(result.stdout)
+                    print(result.stderr)
             except subprocess.CalledProcessError as e:
-                print(f"Docker stdout: {e.stdout}")
-                print(f"Docker stderr: {e.stderr}")
+                self.logger.error(f"Docker stdout: {e.stdout}")
+                self.logger.error(f"Docker stderr: {e.stderr}")
                 raise RuntimeError(f"Docker container execution failed: {e}")
 
             # Process predictions

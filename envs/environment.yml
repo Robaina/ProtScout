@@ -1,0 +1,12 @@
+name: protscout
+channels:
+  - conda-forge
+  - pytorch
+  - defaults
+dependencies:
+  - python>=3.8
+  - numpy>=1.24.0
+  - pandas>=2.0.0
+  - pytorch>=2.0.0
+  - biopython>=1.81
+  - ipykernel
