@@ -1,7 +1,7 @@
 import os
 import re
 import logging
-from .container_management import DockerContainerPool
+from protscout.container_management import DockerContainerPool
 
 
 def minimize_gnina_affinity(

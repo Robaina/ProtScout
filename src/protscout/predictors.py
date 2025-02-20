@@ -13,8 +13,8 @@ import numpy as np
 import pandas as pd
 import torch
 
-from .predictor_helpers import minimize_gnina_affinity
-from .docker_container_pool import DockerContainerPool
+from protscout.predictor_helpers import minimize_gnina_affinity
+from protscout.docker_container_pool import DockerContainerPool
 
 
 # Configure logging
