@@ -1,8 +1,0 @@
-Substrate	Specific_activity	Specific_activity_error	Km	Km_error	kcat	kcat_error	kcat_Km	kcat_Km_error
-p-NP acetate (C2)	73.14	2.89	3.89	0.09	166.56	0.16	42.82	0.35
-p-NP butyrate (C4)	167.06	2.13	3.77	0.25	287.61	0.34	76.29	0.24
-p-NP caprylate (C8)	203.53	3.92	2.94	0.53	235.98	0.42	80.27	0.31
-p-NP decanoate (C10)	241.03	4.54	1.30	0.24	220.88	0.21	169.91	0.53
-p-NP laurate (C12)	303.65	3.91	0.77	0.12	259.25	0.18	336.69	0.26
-p-NP myristate (C14)	362.82	2.46	0.72	0.84	391.63	0.22	543.93	0.51
-p-NP palmitate (C16)	86.22	3.53	2.36	0.55	351.72	0.33	149.03	0.48
