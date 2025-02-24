@@ -1,6 +1,7 @@
 import os
 import re
 import logging
+import subprocess
 
 
 def read_fasta_to_dict(fasta_file):
@@ -57,6 +58,12 @@ def read_fasta_to_dict(fasta_file):
 
     return sequences
 
+
+import os
+import re
+import subprocess
+
+
 def minimize_gnina_affinity(
     pdb_file_no_hetatms: str,
     ligand_sdf: str,
@@ -68,85 +75,91 @@ def minimize_gnina_affinity(
     suppress_warnings: bool = False,
 ) -> dict:
     """
-    Calculates various metrics for the minimized affinity of a ligand to a receptor after local adjustments, through a Docker container.
+    Calculates various metrics for the minimized affinity of a ligand to a receptor after local adjustments,
+    running the gnina command inside a persistent Docker container.
 
     Parameters:
         pdb_file_no_hetatms (str): The file path of the receptor PDB file without HETATM entries.
         ligand_sdf (str): The file path of the ligand in SDF format.
         docker_image (str): Docker image tag for gnina, defaults to "gnina/gnina:latest".
-        output_dir (str, optional): The directory path where output files will be stored. If specified, this directory will be mounted to the Docker container.
-        output_file_name (str, optional): The name of the output file to save the results. Defaults to "wdocking_minimized.sdf.gz".
+        output_dir (str, optional): The directory path where output files will be stored. If specified,
+                                    this directory will be mounted into the Docker container.
+        output_file_name (str, optional): The name of the output file to save the results.
+                                         Defaults to "wdocking_minimized.sdf.gz".
         autobox_add (int, optional): The number of angstroms to add to the autobox size. Defaults to 2.
         cpu_only (bool, optional): If True, run the prediction on CPU only.
         suppress_warnings (bool, optional): If True, suppress warnings from the gnina command.
 
     Returns:
-        dict: A dictionary containing the following keys and values:
-            - 'Affinity' (list of floats, kcal/mol): The binding energies of the ligand to the receptor. Multiple values may represent different stages or types of affinity calculation.
-            - 'RMSD' (float, Angstroms): Root mean square deviation of the docking pose from a reference pose.
-            - 'CNNscore' (float, unitless): A neural network-based score indicating the likelihood of a correct binding pose.
-            - 'CNNaffinity' (float, kcal/mol): Predicted binding affinity based on a convolutional neural network.
-            - 'CNNvariance' (float, unitless): Variance of the CNN prediction, indicating prediction uncertainty.
-
-    Description:
-        This function runs the gnina command in local-only minimization mode from within a Docker container for the given receptor and ligand files.
-        It extracts multiple scoring metrics from the command output, including traditional and CNN-based scores, and can optionally save the output to a specified file.
+        dict: A dictionary containing metrics:
+            - 'Affinity' (list of floats): Binding energies of the ligand to the receptor.
+            - 'RMSD' (float): Root mean square deviation of the docking pose.
+            - 'CNNscore' (float): Neural network–based score indicating likelihood of a correct binding pose.
+            - 'CNNaffinity' (float): Predicted binding affinity from a CNN.
+            - 'CNNvariance' (float): Variance of the CNN prediction.
     """
-    # Resolve absolute paths and parent directories of the files
+    # Resolve absolute paths and directories
     pdb_path = os.path.abspath(pdb_file_no_hetatms)
     pdb_dir = os.path.dirname(pdb_path)
     ligand_path = os.path.abspath(ligand_sdf)
     ligand_dir = os.path.dirname(ligand_path)
 
-    if cpu_only:
-        gpu_flag = ""
-    else:
-        gpu_flag = "--gpus all"
+    # Fixed container name for gnina minimization
+    container_name = "gnina_minimizer_container"
 
-    command = [
-        f"docker run --rm {gpu_flag}",
-        f'-v "{pdb_dir}:/pdb"',
-        f'-v "{ligand_dir}:/ligand"',
-    ]
+    # Determine GPU flag (for container creation)
+    gpu_flag = "--gpus all" if not cpu_only else ""
+
+    # Build volume mounts (these are fixed for the container)
+    mounts = []
+    mounts.append(f'-v "{pdb_dir}:/pdb"')
+    mounts.append(f'-v "{ligand_dir}:/ligand"')
     if output_dir:
         output_path = os.path.abspath(output_dir)
-        output_mount = f'-v "{output_path}:/output"'
-        command.append(output_mount)
-        output_file = f"/output/{output_file_name}"
-        output_cmd = f"-o {output_file}"
-    else:
-        output_cmd = ""
+        mounts.append(f'-v "{output_path}:/output"')
 
-    command.append(
-        f"{docker_image} gnina --local_only --minimize "
+    # Check if the persistent container exists; if not, start it.
+    result = subprocess.run(
+        ["docker", "ps", "-q", "-f", f"name={container_name}"],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    if not result.stdout.strip():
+        run_command = (
+            f"docker run -d --name {container_name} {gpu_flag} "
+            + " ".join(mounts)
+            + f" {docker_image} tail -f /dev/null"
+        )
+        subprocess.run(run_command, shell=True, check=True)
+
+    # Build the gnina command to execute inside the container.
+    gnina_cmd = (
+        f"gnina --local_only --minimize "
         f'-r "/pdb/{os.path.basename(pdb_file_no_hetatms)}" '
         f'-l "/ligand/{os.path.basename(ligand_sdf)}" '
-        f'--autobox_ligand "/ligand/{os.path.basename(ligand_sdf)}" --autobox_add {autobox_add} '
-        f"{output_cmd}"
+        f'--autobox_ligand "/ligand/{os.path.basename(ligand_sdf)}" '
+        f"--autobox_add {autobox_add}"
     )
+    if output_dir:
+        output_file = f"/output/{output_file_name}"
+        gnina_cmd += f" -o {output_file}"
 
-    # Execute the Docker command
-    full_command = " ".join(command)
+    # Execute the gnina command inside the persistent container
+    exec_command = f"docker exec {container_name} {gnina_cmd}"
     if suppress_warnings:
-        full_command += " 2>/dev/null"
+        exec_command += " 2>/dev/null"
 
-    minimized_stdout = subprocess.check_output(full_command, shell=True, text=True)
+    minimized_stdout = subprocess.check_output(exec_command, shell=True, text=True)
 
-    # Extract metrics using regex
-    affinities = re.findall(
-        "Affinity:\\s*([\\-\\.\\d]+\\s*[\\-\\.\\d]+)", minimized_stdout
-    )
+    # Extract metrics from the command output using regular expressions.
+    affinities = re.findall(r"Affinity:\s*([\-\.\d]+\s*[\-\.\d]+)", minimized_stdout)
     affinity_values = (
         [float(val) for val in affinities[0].split()] if affinities else []
     )
-    rmsd = float(re.findall("RMSD:\\s*([\\-\\.\\d]+)", minimized_stdout)[0])
-    cnnscore = float(re.findall("CNNscore:\\s*([\\-\\.\\d]+)", minimized_stdout)[0])
-    cnnaffinity = float(
-        re.findall("CNNaffinity:\\s*([\\-\\.\\d]+)", minimized_stdout)[0]
-    )
-    cnnvariance = float(
-        re.findall("CNNvariance:\\s*([\\-\\.\\d]+)", minimized_stdout)[0]
-    )
+    rmsd = float(re.findall(r"RMSD:\s*([\-\.\d]+)", minimized_stdout)[0])
+    cnnscore = float(re.findall(r"CNNscore:\s*([\-\.\d]+)", minimized_stdout)[0])
+    cnnaffinity = float(re.findall(r"CNNaffinity:\s*([\-\.\d]+)", minimized_stdout)[0])
+    cnnvariance = float(re.findall(r"CNNvariance:\s*([\-\.\d]+)", minimized_stdout)[0])
 
     return {
         "Affinity": affinity_values,
