@@ -8,10 +8,10 @@ WORKDIR /app
 RUN pip install --no-cache-dir biopython
 
 # Copy the script to the container
-COPY prepare_inputs.py /app/
+COPY prepare_catpred_inputs.py /app/
 
 # Fix the __name__ line in the script
-RUN sed -i 's/\*\*name\*\*/__name__/' /app/prepare_inputs.py
+RUN sed -i 's/\*\*name\*\*/__name__/' /app/prepare_catpred_inputs.py
 
 # Entry point to run the script
 ENTRYPOINT ["python", "/app/prepare_catpred_inputs.py"]

@@ -8,10 +8,10 @@ WORKDIR /app
 RUN pip install --no-cache-dir biopython
 
 # Copy the script to the container
-COPY filter_fasta.py /app/
+COPY remove_sequences_without_pdb.py /app/
 
 # Fix the __name__ line in the script
-RUN sed -i 's/\*\*name\*\*/__name__/' /app/filter_fasta.py
+RUN sed -i 's/\*\*name\*\*/__name__/' /app/remove_sequences_without_pdb.py
 
 # Entry point to run the script
-ENTRYPOINT ["python", "/app/filter_fasta.py"]
+ENTRYPOINT ["python", "/app/remove_sequences_without_pdb.py"]
