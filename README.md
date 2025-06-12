@@ -15,97 +15,259 @@ ProtScout is a Python package that enables ranking of protein sequences based on
 - 📈 Property visualization tools
 - 🔄 Combined prediction support
 
-## 🛠️ Installation
+## 🚀 Installation
+
+### Prerequisites
+
+- Python 3.8 or higher
+- Docker (for running containerized prediction tools)
+- NVIDIA GPU with CUDA support (recommended)
+- Conda or Poetry for environment management
+
+### Install with Poetry (Recommended)
 
 ```bash
-pip install protscout
-```
+# Clone repository
+git clone https://github.com/Robaina/ProtScout.git
+cd ProtScout
 
-Or install from source using Poetry:
+# Install Poetry if you haven't already
+pip install poetry
 
-```bash
-git clone https://github.com/Robaina/ProtScout
-cd protscout
+# Copy your existing scripts to the package
+mkdir -p src/protscout/scripts
+cp /path/to/your/scripts/*.py src/protscout/scripts/
+cp /path/to/your/scripts/*.sh src/protscout/scripts/
+
+# Install package and dependencies
 poetry install
+
+# Activate the virtual environment
+poetry shell
 ```
 
-## 🚀 Quick Start
+### Install with pip
 
-```python
-from protscout import ProteinRanker
+```bash
+# Clone repository
+git clone https://github.com/Robaina/ProtScout.git
+cd ProtScout
 
-# Initialize a combined predictor with custom weights
-ranker = ProteinRanker(
-    predictors=[
-        KineticPredictor(substrate_smiles="CC(=O)Oc1ccc([N+](=O)[O-])cc1", weight=1.0),
-        ThermostabilityPredictor(weight=0.5),
-        SolubilityGATSolPredictor(weight=0.5)
-    ]
-)
+# Copy scripts and install
+mkdir -p src/protscout/scripts
+cp /path/to/your/scripts/*.py src/protscout/scripts/
+cp /path/to/your/scripts/*.sh src/protscout/scripts/
 
-# Load sequences
-sequences = ["MAEGEITTFTALTEKFNLPPGNYKKPKLLYCSNG", ...]
-
-# Get combined rankings
-rankings = ranker.rank(sequences)
+# Install in development mode
+pip install -e .
 ```
 
-## 🎮 Available Predictors
+## 📋 Quick Start
 
-### 🔬 Kinetics and Binding
-- **KineticPredictor**: Predicts enzyme kinetic parameters (kcat, KM, Ki)
-- **KMpredictor**: Specialized predictor for Michaelis constants (KM)
-- **AffinityGNINApredictor**: Predicts protein-ligand binding affinity
+Generate a configuration file:
 
-### 🌡️ Stability and Structure
-- **DeepStabPtmPredictor**: Predicts protein melting temperature (Tm)
-- **ThermostabilityPredictor**: Predicts protein thermostability using TemBERTure
-- **GeoPocPredictor**: Predicts optimal temperature, pH, and salt conditions
+```bash
+protscout init -o my_config.yaml
+```
 
-### 💧 Solubility and pH
-- **SolubilityGATSolPredictor**: Predicts protein solubility using GATSol
-- **EpHodPredictor**: Predicts optimal pH conditions
+Edit the configuration file with your paths and settings:
 
-### 🔄 Combined Prediction
-- **CombinedPredictor**: Enables weighted combination of multiple predictors
+```yaml
+condition: ultra
+workdir: /path/to/your/workdir
+modeldir: /path/to/model/weights
+python_executable: /path/to/conda/env/bin/python
+```
 
-## 📋 Predictor Details
+Validate your setup:
 
-| Predictor | Input Requirements | Properties Predicted | Model Base |
-|-----------|-------------------|---------------------|------------|
-| KineticPredictor (CatPred) | Sequences, SMILES | kcat, KM, Ki | esm2_t33_650M_UR50D |
-| KMpredictor | Sequences, SMILES | KM | ESM-2 |
-| AffinityGNINApredictor | Sequences, PDB files, SDF | Binding Affinity | GNINA |
-| DeepStabPtmPredictor | Sequences | Melting Temperature | Prot-T5-XL |
-| ThermostabilityPredictor | Sequences | Thermostability | ProtBERT |
-| GeoPocPredictor | Sequences, (optional PDBs) | Temperature, pH, Salt | esm2_t36_3B_UR50D |
-| SolubilityGATSolPredictor | Sequences, PDB files | Solubility | ESM-1b |
-| EpHodPredictor | Sequences | Optimal pH | ESM-1v |
+```bash
+protscout validate -c my_config.yaml
+```
 
-## 🎯 Roadmap
+Run the workflow:
 
-- [ ] Optimize containers to enable input of protein embeddings for ESM-2 models
-- [ ] Standardize embedding input across all models
-- [ ] Support direct embedding input for ESM-based models
-- [ ] Unify embedding computation to avoid redundant calculations
-- [ ] Add support for custom model weights
-- [ ] Implement caching for embeddings
-- [ ] Add batch prediction support for all predictors
+```bash
+protscout run -c my_config.yaml
+```
 
-## 📚 Documentation
+## 📖 Usage Examples
 
-For detailed documentation, visit [protscout.readthedocs.io](https://protscout.readthedocs.io)
+### Basic Workflow
+
+```bash
+# Run complete workflow
+protscout run -c config.yaml
+
+# Run specific steps only
+protscout run -c config.yaml -s clean_sequences -s esmfold
+
+# Override condition from command line
+protscout run -c config.yaml --condition ultra
+```
+
+### Advanced Features
+
+```bash
+# Resume from last successful step after failure
+protscout run -c config.yaml --resume
+
+# Dry run to see what would be executed
+protscout run -c config.yaml --dry-run
+
+# Monitor logs in real-time
+protscout logs logs/protscout_run_20240112_143022.log -f
+```
+
+### Parallel Execution
+
+The workflow automatically runs compatible steps in parallel:
+
+- ESMFold and ESM-2 run simultaneously
+- All prediction tools (CatPred, Temberture, GeoPoc, GATSol) run in parallel
+- Result processing steps are parallelized
+
+## 🔧 Configuration
+
+ProtScout uses YAML configuration files for workflow management. Key configuration sections:
+
+```yaml
+# Analysis condition
+condition: ultra
+
+# Directory paths
+workdir: /home/ubuntu/lab4/mangrove-plastic-degrading
+modeldir: /home/ubuntu/lab4/model_weights
+
+# Resource allocation
+memory: 100g
+workers: 2
+quiet: true
+
+# Container configuration
+containers:
+  esmfold:
+    image: ghcr.io/new-atlantis-labs/esmfold:latest
+    max_containers: 1
+
+# Steps to execute
+steps:
+  - clean_sequences
+  - esmfold
+  - esm2
+  # ... more steps
+```
+
+See `configs/example_workflow.yaml` for a complete example.
+
+## 🛠️ Workflow Steps
+
+- `clean_sequences` - Clean and deduplicate input sequences
+- `esmfold` - Predict protein structures using ESMFold
+- `esm2` - Generate protein embeddings using ESM-2
+- `remove_sequences_without_pdb` - Filter sequences without structures
+- `prepare_catpred` - Prepare inputs for catalytic prediction
+- `catpred` - Predict catalytic properties
+- `temberture` - Predict temperature stability
+- `geopoc` - Predict environmental conditions (temp, pH, salt)
+- `gatsol` - Predict solubility
+- `classical_properties` - Calculate classical protein properties
+- `process_*` - Process results from each tool
+- `consolidate_results` - Create final output tables
+
+## 📊 Output Structure
+
+```
+results/
+└── pazy_homologs_total/
+    ├── outputs_ultra/
+    │   ├── structures/      # PDB files from ESMFold
+    │   ├── embeddings/      # ESM-2 embeddings
+    │   ├── catpred/         # CatPred predictions
+    │   ├── temberture/      # Temperature predictions
+    │   ├── geopoc/          # Environmental predictions
+    │   └── gatsol/          # Solubility predictions
+    └── results_ultra/
+        ├── classical_properties/
+        ├── *_results/           # Processed results
+        └── consolidated_results/ # Final tables
+```
+
+## 🔄 Resume Capability
+
+ProtScout automatically saves workflow state and can resume from failures:
+
+```bash
+# If workflow fails at step 'gatsol'
+protscout run -c config.yaml --resume
+# Workflow will skip completed steps and continue from 'gatsol'
+```
+
+## 📝 Logging
+
+Comprehensive logging with multiple levels:
+
+- Console output: INFO level (progress and important messages)
+- Log file: DEBUG level (detailed execution information)
+
+Logs are saved to: `{workdir}/logs/protscout_run_YYYYMMDD_HHMMSS.log`
+
+## 🐛 Troubleshooting
+
+### Docker Issues
+
+```bash
+# Check if Docker is running
+docker info
+
+# Ensure user has Docker permissions
+sudo usermod -aG docker $USER
+```
+
+### GPU Issues
+
+```bash
+# Check GPU availability
+nvidia-smi
+
+# Verify CUDA installation
+nvcc --version
+```
+
+### Memory Issues
+
+- Reduce `max_containers` in configuration
+- Decrease `toks_per_batch` for ESM-2
+- Lower batch sizes for prediction tools
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-## 📜 License
+## 📄 License
 
-This project is licensed under the GPL-3.0 License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GPL-3.0 License - see the LICENSE file for details.
+
+## 📚 Citation
+
+If you use ProtScout in your research, please cite:
+
+```bibtex
+@software{protscout2024,
+  author = {Robaina-Estévez, Semidán},
+  title = {ProtScout: AI-powered protein sequence ranking},
+  year = {2024},
+  url = {https://github.com/Robaina/ProtScout}
+}
+```
 
 ## 🙏 Acknowledgments
 
-- Thanks to all the teams behind the integrated AI models
-- Contributors and maintainers of the essential dependencies
-- The computational biology community for valuable feedback
+ProtScout integrates several state-of-the-art protein prediction tools:
+
+- ESMFold for structure prediction
+- ESM-2 for sequence embeddings
+- CatPred for catalytic activity prediction
+- Temberture for thermal stability prediction
+- GeoPoc for environmental condition prediction
+- GATSol for solubility prediction
