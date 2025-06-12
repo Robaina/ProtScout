@@ -1,0 +1,11 @@
+Internal_ID	Polymer	Polymer_ID	Organism	Enzyme Name	EC Number	References	Database_Type	Database_ID
+1	Polyethylene terephthalate (PET)	PET	Ideonella sakaiensis 201-F6 1	ISPETase, ISF6_4831 ( →DuraPETase ) ( →ThermoPETase ) ( →Fast-PETase ) ( →HotPETase ) ( →DepoPETase )	EC 3.1.1.101	Yoshida, 2016; Han 2017; Cui, 2021; Son, 2019; Lu, 2022; Bell, 2022; Shi et al., 2023; Sevilla et al., 2023	UniProt	A0A0K8P6T7
+2	Polyethylene terephthalate (PET)	PET	Oleispira antarctica RB-8	PET5, LipA (=Oacut)	EC 3.1.1.1	Danso, 2018; Blasquez-Sanchez, 2021	UniProt	R4YKL9
+3	Polyethylene terephthalate (PET)	PET	Vibrio gazogenes	PET6, BSQ33_03270	EC 3.1.1.1	Danso, 2018	UniProt	A0A1Z2SIQ1
+4	Polyethylene terephthalate (PET)	PET	Caldimonas brevitalea	PET12 ( Pb Cut;SbCut), AAW51_2473	EC 3.1.1.1	Danso, 2018; Chen, 2021; Avilan,2023	UniProt	A0A0G3BI90
+5	Polyethylene terephthalate (PET)	PET	Pseudomonas oleovorans/ pseudoalcaligenes DSM 50188	PpCutA/PoCut	EC 3.1.1.74	Inglis, 2011; Haernvall, 2017	GenBank	ADK73612
+6	Polyethylene terephthalate (PET)	PET	Pseudomonas saudimassiliensis	PsCut	EC 3.1.1.1	Avilan, 2023	UniProt	A0A078MGG8
+7	Polyethylene terephthalate (PET)	PET	Halopseudomonas bauzanensis	PbauzCut	EC 3.1.1.1	Avilan, 2023	UniProt	A0A031MKR8
+8	Polyethylene terephthalate (PET)	PET	Pseudomonas alcaligenes	PaCut	EC 3.1.1.1	Avilan, 2023	GenBank	SUD16364.1
+9	Polyethylene terephthalate (PET)	PET	Moraxella sp.TA144	lip1, Mors1	EC 3.1.1.3	Blasquez-Sanchez, 2021	UniProt	P19833
+10	Polyethylene terephthalate (PET)	PET	Pseudomonas pseudoalcaligenes	PpEst (tesA)	EC 3.1.1.2	Haernvall, 2017; Wallace, 2016	UniProt	W6R2Y2

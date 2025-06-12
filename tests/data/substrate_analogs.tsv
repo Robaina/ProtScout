@@ -1,0 +1,11 @@
+plastic_id	plastic_name	substrate	smiles	reference
+Nylon	Nylon	N-acetyl-GABA-pNP ester	CC(=O)NCCCC(=O)Oc1ccc([N+](=O)[O-])cc1	https://www.sciencedirect.com/science/article/abs/pii/S0003269724001428
+BHET	Polyethylene terephthalate	Bis(2-hydroxyethyl) terephthalate (BHET)	O=C(OCCO)c1ccc(C(=O)OCCO)cc1	https://www.nature.com/articles/s41467-024-45662-9
+PE	Polyethylene	Dodecane	CCCCCCCCCCCC	https://bmcbiotechnol.biomedcentral.com/articles/10.1186/s12896-023-00787-5
+PS	Polystyrene	Styrene trimer	CC(CC(CC(C)c1ccccc1)c1ccccc1)c1ccccc1	https://www.sciencedirect.com/science/article/pii/S0734975022000878
+PU	Polyurethane	Diethyl methylenedicarbamate	CCOC(=O)NCNC(=O)OCC	https://pubs.rsc.org/en/content/articlelanding/2024/fd/d4fd00022f
+PLA	Polylactic acid	L-lactic acid dimer	C[C@H](O)C(=O)O[C@@H](C)C(=O)O	https://www.nature.com/articles/s41586-024-07709-1
+PET	Polyethylene terephthalate	Hydroxy-ethyl-capped PET dimer	OCCOOC(=O)c1ccc(cc1)C(=O)OCCOOC(=O)c2ccc(cc2)C(=O)OCCO	https://www.nature.com/articles/s42004-024-01154-x
+Cellulose	Cellulose	Cellobiose	OC[C@H]1O[C@@H](O[C@@H]2[C@@H](CO)OC(O)[C@H](O)[C@H]2O)[C@H](O)[C@@H](O)[C@@H]1O	https://pubmed.ncbi.nlm.nih.gov/24143051/
+PBAT	Poly(butylene adipate-co-terephthalate)	bis(4-hydroxybutyl) terephthalate	C1=CC(=CC=C1C(=O)OCCCCO)C(=O)OCCCCO	Used as an oligomeric model substrate in PBAT enzymatic degradation studies.
+PHA	Polyhydroxyalkanoates (e.g., PHB)	3-(3-hydroxybutanoyloxy)butanoic acid (3HB dimer)	OC(CC(OC(CC(O)=O)C)=O)C	Identified as the D-(–)-3-hydroxybutyrate dimer (DD-dimer), a substrate in PHB depolymerase studies.
