@@ -6,6 +6,9 @@ authors = ["Semidán Robaina-Estévez <semidan.robaina@gmail.com>"]
 license = "GPL-3.0"
 readme = "README.md"
 packages = [{ include = "protscout", from = "src" }]
+include = [
+    { path = "src/protscout/*.sh", format = ["sdist", "wheel"] }
+]
 homepage = "https://github.com/Robaina/ProtScout"
 repository = "https://github.com/Robaina/ProtScout"
 documentation = "https://github.com/Robaina/ProtScout"

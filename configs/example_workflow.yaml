@@ -1,23 +1,47 @@
 # ProtScout Workflow Configuration
-# Condition: ultra
 
-condition: ultra
-workdir: /home/ubuntu/lab4/mangrove-plastic-degrading
+condition: test
+workdir: /home/ubuntu/lab4/ProtScout
 modeldir: /home/ubuntu/lab4/model_weights
 python_executable: /home/ubuntu/.conda/envs/protscout/bin/python
 
 paths:
-  # Override input/output base directories
-  input_base: /custom/path/to/input/data
-  output_base: /custom/path/to/results
+  # Input/output base directories
+  input_base: /home/ubuntu/lab4/ProtScout/tests/data
+  output_base: /home/ubuntu/lab4/ProtScout/tests/results
   
-  # Override specific paths
-  substrate_analogs: /custom/path/to/substrate_analogs.tsv
-  input_fasta: /custom/path/to/fasta/files
+  # Specific input paths
+  substrate_analogs: /home/ubuntu/lab4/ProtScout/tests/data/substrate_analogs.tsv
+  input_fasta: /home/ubuntu/lab4/ProtScout/tests/data/sequences
+  clean_fasta: /home/ubuntu/lab4/ProtScout/tests/data/clean_sequences
   
-  # Override specific output directories
-  structures: /custom/path/to/structures
-  embeddings: /custom/path/to/embeddings
+  # Specific output directories
+  output_dir: /home/ubuntu/lab4/ProtScout/tests/outputs
+  results_dir: /home/ubuntu/lab4/ProtScout/tests/results
+  structures: /home/ubuntu/lab4/ProtScout/tests/outputs/structures
+  embeddings: /home/ubuntu/lab4/ProtScout/tests/outputs/embeddings
+  
+  # Tool-specific paths
+  catpred_input: /home/ubuntu/lab4/ProtScout/tests/data/catpred_data
+  temberture_output: /home/ubuntu/lab4/ProtScout/tests/outputs/temberture
+  geopoc_output: /home/ubuntu/lab4/ProtScout/tests/outputs/geopoc
+  gatsol_output: /home/ubuntu/lab4/ProtScout/tests/outputs/gatsol
+  catpred_output: /home/ubuntu/lab4/ProtScout/tests/outputs/catpred
+  classical_props_output: /home/ubuntu/lab4/ProtScout/tests/outputs/classical_properties
+  
+  # Results processing paths
+  temberture_results: /home/ubuntu/lab4/ProtScout/tests/results/temberture_results
+  geopoc_results: /home/ubuntu/lab4/ProtScout/tests/results/geopoc_results
+  gatsol_results: /home/ubuntu/lab4/ProtScout/tests/results/gatsol_results
+  catpred_results: /home/ubuntu/lab4/ProtScout/tests/results/catpred_results
+  consolidated_results: /home/ubuntu/lab4/ProtScout/tests/results/consolidated_results
+  
+  # Model paths
+  geopoc_model: /home/ubuntu/lab4/model_weights/geopoc
+  gatsol_model: /home/ubuntu/lab4/model_weights/gatsol
+  
+  # Log directory
+  logs: /home/ubuntu/lab4/ProtScout/tests/logs
 
 # Resource allocation
 memory: 100g
@@ -28,30 +52,41 @@ max_retries: 2
 # Container configuration
 containers:
   esmfold:
-    image: ghcr.io/new-atlantis-labs/esmfold:latest
+    image: ghcr.io/new-atlantis-labs/protscout-tools-esmfold:latest
     max_containers: 1
-  
+    
   esm2:
-    image: ghcr.io/new-atlantis-labs/esm2:latest
+    image: ghcr.io/new-atlantis-labs/protscout-tools-esm2:latest
     max_containers: 1
     toks_per_batch: 4096
-  
+    model: esm2_t36_3B_UR50D
+    include: per_tok
+    
   catpred:
-    image: ghcr.io/new-atlantis-labs/catpred:latest
-  
+    image: ghcr.io/new-atlantis-labs/protscout-tools-catpred:latest
+    
   temberture:
-    image: ghcr.io/new-atlantis-labs/temberture:latest
-  
+    image: ghcr.io/new-atlantis-labs/protscout-tools-temberture:latest
+    
   geopoc:
-    image: ghcr.io/new-atlantis-labs/geopoc:latest
-  
+    image: ghcr.io/new-atlantis-labs/protscout-tools-geopoc:latest
+    tasks: "temp,pH,salt"
+    
   gatsol:
-    image: ghcr.io/new-atlantis-labs/gatsol:latest
+    image: ghcr.io/new-atlantis-labs/protscout-tools-gatsol:latest
+    batch_size: 32
+    feature_batch: 4
+    timeout: 600
 
 # GPU and shared memory settings
 resources:
   gpus: all
   shm_size: 100g
+
+# Clean sequences configuration
+clean_sequences:
+  remove_duplicates: true
+  prefix: ""
 
 # Steps to execute (comment out to skip)
 steps:

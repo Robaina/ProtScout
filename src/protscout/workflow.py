@@ -121,7 +121,7 @@ class ProtScoutWorkflow:
             ],
             
             'esmfold': [
-                'sudo', str(self.scripts_dir / 'run_esmfold.sh'),
+                'sudo', 'bash', str(self.scripts_dir / 'run_esmfold.sh'),
                 '--input', str(paths['clean_fasta']),
                 '--output', str(paths['structures']),
                 '--docker-image', containers.get('esmfold', {}).get('image', 'ghcr.io/new-atlantis-labs/esmfold:latest'),
@@ -130,7 +130,7 @@ class ProtScoutWorkflow:
             ],
             
             'esm2': [
-                'sudo', str(self.scripts_dir / 'run_esm2.sh'),
+                'sudo', 'bash', str(self.scripts_dir / 'run_esm2.sh'),
                 '--input', str(paths['clean_fasta']),
                 '--output', str(paths['embeddings']),
                 '--docker-image', containers.get('esm2', {}).get('image', 'ghcr.io/new-atlantis-labs/esm2:latest'),
@@ -157,7 +157,7 @@ class ProtScoutWorkflow:
             ],
             
             'catpred': [
-                'sudo', str(self.scripts_dir / 'run_catpred.sh'),
+                'sudo', 'bash', str(self.scripts_dir / 'run_catpred.sh'),
                 '--input', str(paths['catpred_input']),
                 '--output', str(paths['catpred_output']),
                 '--model', str(paths['modeldir']),
@@ -168,7 +168,7 @@ class ProtScoutWorkflow:
             ],
             
             'temberture': [
-                'sudo', str(self.scripts_dir / 'run_temberture.sh'),
+                'sudo', 'bash', str(self.scripts_dir / 'run_temberture.sh'),
                 '--input', str(paths['clean_fasta']),
                 '--output', str(paths['temberture_output']),
                 '--parallel', str(self.config.get('workers', 2)),
@@ -178,7 +178,7 @@ class ProtScoutWorkflow:
             ],
             
             'geopoc': [
-                'sudo', str(self.scripts_dir / 'run_geopoc.sh'),
+                'sudo', 'bash', str(self.scripts_dir / 'run_geopoc.sh'),
                 '--input', str(paths['clean_fasta']),
                 '--output', str(paths['geopoc_output']),
                 '--esm', str(paths['modeldir']),
@@ -193,7 +193,7 @@ class ProtScoutWorkflow:
             ],
             
             'gatsol': [
-                'sudo', str(self.scripts_dir / 'run_gatsol.sh'),
+                'sudo', 'bash', str(self.scripts_dir / 'run_gatsol.sh'),
                 '--input', str(paths['clean_fasta']),
                 '--output', str(paths['gatsol_output']),
                 '--structures', str(paths['structures']),

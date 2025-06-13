@@ -1,0 +1,38 @@
+{
+  "timestamp": "2025-06-13T09:10:28.728649",
+  "condition": "test",
+  "completed_steps": [
+    "clean_sequences",
+    "esm2",
+    "esmfold",
+    "remove_sequences_without_pdb",
+    "prepare_catpred"
+  ],
+  "step_results": {
+    "clean_sequences": {
+      "success": true,
+      "duration": 0.05345320701599121,
+      "timestamp": "2025-06-13T09:07:45.039005"
+    },
+    "esm2": {
+      "success": true,
+      "duration": 51.20804262161255,
+      "timestamp": "2025-06-13T09:08:36.258995"
+    },
+    "esmfold": {
+      "success": true,
+      "duration": 163.35640239715576,
+      "timestamp": "2025-06-13T09:10:28.408561"
+    },
+    "remove_sequences_without_pdb": {
+      "success": true,
+      "duration": 0.15247321128845215,
+      "timestamp": "2025-06-13T09:10:28.563411"
+    },
+    "prepare_catpred": {
+      "success": true,
+      "duration": 0.1551046371459961,
+      "timestamp": "2025-06-13T09:10:28.728606"
+    }
+  }
+}

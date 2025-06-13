@@ -1,0 +1,1 @@
+result_directory	catpred_input_file	original_fasta_file
