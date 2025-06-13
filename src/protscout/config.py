@@ -1,7 +1,7 @@
 import yaml
 import os
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import logging
 from datetime import datetime
 
@@ -31,49 +31,79 @@ class Config:
                     self._config[config_key] = value
     
     def _setup_paths(self):
-        """Setup all directory paths based on condition"""
-        condition = self._config['condition']
+        """Setup all directory paths based on configuration"""
+        # Get base directories from config
+        condition = self._config.get('condition', 'default')
         workdir = Path(self._config['workdir'])
-        modeldir = Path(self._config['modeldir'])
+        modeldir = Path(self._config.get('modeldir', workdir / 'models'))
         
-        # Input/Output paths
-        input_base = workdir / "data/pazy_protein_homologs_total"
-        output_base = workdir / "results/pazy_homologs_total"
+        # Get path configurations with defaults
+        path_config = self._config.get('paths', {})
+        
+        # Base input/output paths (can be overridden in config)
+        input_base = Path(path_config.get('input_base', 
+                                         workdir / "data"))
+        output_base = Path(path_config.get('output_base', 
+                                          workdir / "results"))
+        
+        # Substrate analogs path (can be overridden in config)
+        substrate_analogs_path = Path(path_config.get('substrate_analogs', 
+                                                     workdir / "data/substrate_analogs.tsv"))
         
         self.paths = {
             # Input paths
-            'input_fasta': input_base / condition,
-            'clean_fasta': input_base / f"clean_{condition}",
-            'substrate_analogs': workdir / "data/substrate_analogs/substrate_analogs.tsv",
-            'catpred_input': input_base / "catpred_data",
+            'input_fasta': Path(path_config.get('input_fasta', 
+                                               input_base / condition)),
+            'clean_fasta': Path(path_config.get('clean_fasta', 
+                                               input_base / f"clean_{condition}")),
+            'substrate_analogs': substrate_analogs_path,
+            'catpred_input': Path(path_config.get('catpred_input', 
+                                                 input_base / "catpred_data")),
             
             # Output directories
-            'output_dir': output_base / f"outputs_{condition}",
-            'results_dir': output_base / f"results_{condition}",
+            'output_dir': Path(path_config.get('output_dir', 
+                                              output_base / f"outputs_{condition}")),
+            'results_dir': Path(path_config.get('results_dir', 
+                                               output_base / f"results_{condition}")),
             
-            # Tool-specific outputs
-            'structures': output_base / f"outputs_{condition}/structures",
-            'embeddings': output_base / f"outputs_{condition}/embeddings",
-            'temberture_output': output_base / f"outputs_{condition}/temberture",
-            'geopoc_output': output_base / f"outputs_{condition}/geopoc",
-            'gatsol_output': output_base / f"outputs_{condition}/gatsol",
-            'catpred_output': output_base / f"outputs_{condition}/catpred",
-            'classical_props_output': output_base / f"results_{condition}/classical_properties",
+            # Tool-specific outputs (derived from output_dir if not specified)
+            'structures': Path(path_config.get('structures', 
+                                              output_base / f"outputs_{condition}/structures")),
+            'embeddings': Path(path_config.get('embeddings', 
+                                              output_base / f"outputs_{condition}/embeddings")),
+            'temberture_output': Path(path_config.get('temberture_output', 
+                                                     output_base / f"outputs_{condition}/temberture")),
+            'geopoc_output': Path(path_config.get('geopoc_output', 
+                                                 output_base / f"outputs_{condition}/geopoc")),
+            'gatsol_output': Path(path_config.get('gatsol_output', 
+                                                 output_base / f"outputs_{condition}/gatsol")),
+            'catpred_output': Path(path_config.get('catpred_output', 
+                                                  output_base / f"outputs_{condition}/catpred")),
+            'classical_props_output': Path(path_config.get('classical_props_output', 
+                                                          output_base / f"results_{condition}/classical_properties")),
             
-            # Results directories
-            'temberture_results': output_base / f"results_{condition}/temberture_results",
-            'geopoc_results': output_base / f"results_{condition}/geopoc_results",
-            'gatsol_results': output_base / f"results_{condition}/gatsol_results",
-            'catpred_results': output_base / f"results_{condition}/catpred_results",
-            'consolidated_results': output_base / f"results_{condition}/consolidated_results",
+            # Results directories (derived from results_dir if not specified)
+            'temberture_results': Path(path_config.get('temberture_results', 
+                                                      output_base / f"results_{condition}/temberture_results")),
+            'geopoc_results': Path(path_config.get('geopoc_results', 
+                                                  output_base / f"results_{condition}/geopoc_results")),
+            'gatsol_results': Path(path_config.get('gatsol_results', 
+                                                  output_base / f"results_{condition}/gatsol_results")),
+            'catpred_results': Path(path_config.get('catpred_results', 
+                                                   output_base / f"results_{condition}/catpred_results")),
+            'consolidated_results': Path(path_config.get('consolidated_results', 
+                                                        output_base / f"results_{condition}/consolidated_results")),
             
             # Model paths
             'modeldir': modeldir,
-            'geopoc_model': modeldir / "geopoc",
-            'gatsol_model': modeldir / "gatsol",
+            'geopoc_model': Path(path_config.get('geopoc_model', 
+                                                modeldir / "geopoc")),
+            'gatsol_model': Path(path_config.get('gatsol_model', 
+                                                modeldir / "gatsol")),
             
             # Logs
-            'log_dir': workdir / "logs",
+            'log_dir': Path(path_config.get('log_dir', 
+                                           workdir / "logs")),
         }
         
         # Create all directories with proper permissions
@@ -91,11 +121,12 @@ class Config:
         
         # Create run-specific log file
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.log_file = log_dir / f"protscout_run_{timestamp}.log"
+        condition = self._config.get('condition', 'default')
+        self.log_file = log_dir / f"protscout_{condition}_{timestamp}.log"
     
     def _validate_config(self):
         """Validate required configuration parameters"""
-        required_keys = ['condition', 'workdir', 'modeldir', 'workers']
+        required_keys = ['workdir', 'workers']
         missing = [k for k in required_keys if k not in self._config]
         if missing:
             raise ValueError(f"Missing required config keys: {missing}")
@@ -103,8 +134,15 @@ class Config:
         # Validate paths exist
         if not Path(self._config['workdir']).exists():
             raise ValueError(f"Workdir does not exist: {self._config['workdir']}")
-        if not Path(self._config['modeldir']).exists():
-            raise ValueError(f"Modeldir does not exist: {self._config['modeldir']}")
+        
+        # Validate modeldir if specified
+        if 'modeldir' in self._config:
+            if not Path(self._config['modeldir']).exists():
+                raise ValueError(f"Modeldir does not exist: {self._config['modeldir']}")
+        
+        # Validate substrate analogs file if it's expected to exist
+        if self.paths['substrate_analogs'].exists() == False:
+            logging.warning(f"Substrate analogs file not found: {self.paths['substrate_analogs']}")
     
     def get(self, key: str, default=None):
         """Get configuration value with optional default"""
@@ -114,6 +152,14 @@ class Config:
         """Get container-specific configuration"""
         containers = self._config.get('containers', {})
         return containers.get(container_name, {})
+    
+    def get_steps(self) -> List[str]:
+        """Get list of steps to execute"""
+        return self._config.get('steps', [])
+    
+    def get_resource_config(self) -> Dict[str, Any]:
+        """Get resource configuration"""
+        return self._config.get('resources', {})
     
     def __getattr__(self, key):
         """Allow attribute-style access to config values"""
