@@ -28,7 +28,8 @@ paths:
   geopoc_output: /home/ubuntu/lab4/ProtScout/tests/outputs/geopoc
   gatsol_output: /home/ubuntu/lab4/ProtScout/tests/outputs/gatsol
   catpred_output: /home/ubuntu/lab4/ProtScout/tests/outputs/catpred
-  classical_props_output: /home/ubuntu/lab4/ProtScout/tests/outputs/classical_properties
+  # REMOVE THE LINE BELOW
+  # classical_props_output: /home/ubuntu/lab4/ProtScout/tests/outputs/classical_properties 
   
   # Results processing paths
   temberture_results: /home/ubuntu/lab4/ProtScout/tests/results/temberture_results

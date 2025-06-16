@@ -1,5 +1,5 @@
 {
-  "timestamp": "2025-06-16T16:19:02.985981",
+  "timestamp": "2025-06-16T17:05:42.357326",
   "condition": "test",
   "completed_steps": [
     "clean_sequences",
@@ -8,12 +8,12 @@
     "remove_sequences_without_pdb",
     "prepare_catpred",
     "geopoc",
-    "temberture",
     "catpred",
+    "temberture",
     "gatsol",
     "classical_properties",
-    "process_gatsol",
     "process_temberture",
+    "process_gatsol",
     "process_geopoc",
     "process_catpred",
     "consolidate_results"
@@ -21,78 +21,78 @@
   "step_results": {
     "clean_sequences": {
       "success": true,
-      "duration": 0.055611371994018555,
-      "timestamp": "2025-06-16T16:15:12.548927"
+      "duration": 0.0504765510559082,
+      "timestamp": "2025-06-16T17:01:55.625027"
     },
     "esm2": {
       "success": true,
-      "duration": 41.175976037979126,
-      "timestamp": "2025-06-16T16:15:53.737181"
+      "duration": 41.18398356437683,
+      "timestamp": "2025-06-16T17:02:36.823945"
     },
     "esmfold": {
       "success": true,
-      "duration": 164.29563331604004,
-      "timestamp": "2025-06-16T16:17:56.854416"
+      "duration": 163.98162269592285,
+      "timestamp": "2025-06-16T17:04:39.619228"
     },
     "remove_sequences_without_pdb": {
       "success": true,
-      "duration": 0.16058635711669922,
-      "timestamp": "2025-06-16T16:17:57.018417"
+      "duration": 0.16707205772399902,
+      "timestamp": "2025-06-16T17:04:39.789978"
     },
     "prepare_catpred": {
       "success": true,
-      "duration": 0.17162251472473145,
-      "timestamp": "2025-06-16T16:17:57.198933"
+      "duration": 0.16945123672485352,
+      "timestamp": "2025-06-16T17:04:39.969121"
     },
     "geopoc": {
       "success": true,
-      "duration": 28.40762734413147,
-      "timestamp": "2025-06-16T16:18:25.618503"
-    },
-    "temberture": {
-      "success": true,
-      "duration": 31.242017030715942,
-      "timestamp": "2025-06-16T16:18:28.454013"
+      "duration": 28.397290468215942,
+      "timestamp": "2025-06-16T17:05:08.387248"
     },
     "catpred": {
       "success": true,
-      "duration": 41.33994793891907,
-      "timestamp": "2025-06-16T16:18:38.554568"
+      "duration": 31.318983793258667,
+      "timestamp": "2025-06-16T17:05:11.309978"
+    },
+    "temberture": {
+      "success": true,
+      "duration": 31.32645535469055,
+      "timestamp": "2025-06-16T17:05:11.316137"
     },
     "gatsol": {
       "success": true,
-      "duration": 64.65569567680359,
-      "timestamp": "2025-06-16T16:19:01.868522"
+      "duration": 61.23572826385498,
+      "timestamp": "2025-06-16T17:05:41.223807"
     },
     "classical_properties": {
       "success": true,
-      "duration": 0.3601715564727783,
-      "timestamp": "2025-06-16T16:19:02.230509"
-    },
-    "process_gatsol": {
-      "success": true,
-      "duration": 0.37494707107543945,
-      "timestamp": "2025-06-16T16:19:02.617949"
+      "duration": 0.35701775550842285,
+      "timestamp": "2025-06-16T17:05:41.583747"
     },
     "process_temberture": {
       "success": true,
-      "duration": 0.38212156295776367,
-      "timestamp": "2025-06-16T16:19:02.624201"
+      "duration": 0.36829280853271484,
+      "timestamp": "2025-06-16T17:05:41.962518"
+    },
+    "process_gatsol": {
+      "success": true,
+      "duration": 0.37128353118896484,
+      "timestamp": "2025-06-16T17:05:41.966182"
     },
     "process_geopoc": {
       "success": true,
-      "duration": 0.3854396343231201,
-      "timestamp": "2025-06-16T16:19:02.627573"
+      "duration": 0.38773202896118164,
+      "timestamp": "2025-06-16T17:05:41.982859"
     },
     "process_catpred": {
       "success": true,
-      "duration": 0.44043397903442383,
-      "timestamp": "2025-06-16T16:19:02.683446"
+      "duration": 0.4446678161621094,
+      "timestamp": "2025-06-16T17:05:42.040696"
     },
     "consolidate_results": {
       "success": true,
-      "duration": 0.29944658279418945,
-      "timestamp": "2025-06-16T16:19:02.985969"
+      "duration": 0.3132903575897217,
+      "timestamp": "2025-06-16T17:05:42.357315"
     }
   }
 }
