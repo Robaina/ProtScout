@@ -1,38 +1,98 @@
 {
-  "timestamp": "2025-06-13T09:10:28.728649",
+  "timestamp": "2025-06-16T16:19:02.985981",
   "condition": "test",
   "completed_steps": [
     "clean_sequences",
     "esm2",
     "esmfold",
     "remove_sequences_without_pdb",
-    "prepare_catpred"
+    "prepare_catpred",
+    "geopoc",
+    "temberture",
+    "catpred",
+    "gatsol",
+    "classical_properties",
+    "process_gatsol",
+    "process_temberture",
+    "process_geopoc",
+    "process_catpred",
+    "consolidate_results"
   ],
   "step_results": {
     "clean_sequences": {
       "success": true,
-      "duration": 0.05345320701599121,
-      "timestamp": "2025-06-13T09:07:45.039005"
+      "duration": 0.055611371994018555,
+      "timestamp": "2025-06-16T16:15:12.548927"
     },
     "esm2": {
       "success": true,
-      "duration": 51.20804262161255,
-      "timestamp": "2025-06-13T09:08:36.258995"
+      "duration": 41.175976037979126,
+      "timestamp": "2025-06-16T16:15:53.737181"
     },
     "esmfold": {
       "success": true,
-      "duration": 163.35640239715576,
-      "timestamp": "2025-06-13T09:10:28.408561"
+      "duration": 164.29563331604004,
+      "timestamp": "2025-06-16T16:17:56.854416"
     },
     "remove_sequences_without_pdb": {
       "success": true,
-      "duration": 0.15247321128845215,
-      "timestamp": "2025-06-13T09:10:28.563411"
+      "duration": 0.16058635711669922,
+      "timestamp": "2025-06-16T16:17:57.018417"
     },
     "prepare_catpred": {
       "success": true,
-      "duration": 0.1551046371459961,
-      "timestamp": "2025-06-13T09:10:28.728606"
+      "duration": 0.17162251472473145,
+      "timestamp": "2025-06-16T16:17:57.198933"
+    },
+    "geopoc": {
+      "success": true,
+      "duration": 28.40762734413147,
+      "timestamp": "2025-06-16T16:18:25.618503"
+    },
+    "temberture": {
+      "success": true,
+      "duration": 31.242017030715942,
+      "timestamp": "2025-06-16T16:18:28.454013"
+    },
+    "catpred": {
+      "success": true,
+      "duration": 41.33994793891907,
+      "timestamp": "2025-06-16T16:18:38.554568"
+    },
+    "gatsol": {
+      "success": true,
+      "duration": 64.65569567680359,
+      "timestamp": "2025-06-16T16:19:01.868522"
+    },
+    "classical_properties": {
+      "success": true,
+      "duration": 0.3601715564727783,
+      "timestamp": "2025-06-16T16:19:02.230509"
+    },
+    "process_gatsol": {
+      "success": true,
+      "duration": 0.37494707107543945,
+      "timestamp": "2025-06-16T16:19:02.617949"
+    },
+    "process_temberture": {
+      "success": true,
+      "duration": 0.38212156295776367,
+      "timestamp": "2025-06-16T16:19:02.624201"
+    },
+    "process_geopoc": {
+      "success": true,
+      "duration": 0.3854396343231201,
+      "timestamp": "2025-06-16T16:19:02.627573"
+    },
+    "process_catpred": {
+      "success": true,
+      "duration": 0.44043397903442383,
+      "timestamp": "2025-06-16T16:19:02.683446"
+    },
+    "consolidate_results": {
+      "success": true,
+      "duration": 0.29944658279418945,
+      "timestamp": "2025-06-16T16:19:02.985969"
     }
   }
 }

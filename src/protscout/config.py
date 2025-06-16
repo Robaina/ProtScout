@@ -80,9 +80,11 @@ class Config:
             'catpred_output': Path(path_config.get('catpred_output', 
                                                   output_base / f"outputs_{condition}/catpred")),
             'classical_props_output': Path(path_config.get('classical_props_output', 
-                                                          output_base / f"results_{condition}/classical_properties")),
+                                                          output_base / f"results_{condition}/classical_properties_results")),
             
             # Results directories (derived from results_dir if not specified)
+            'classical_properties_results': Path(path_config.get('classical_properties_results', 
+                                                               output_base / f"results_{condition}/classical_properties_results")),
             'temberture_results': Path(path_config.get('temberture_results', 
                                                       output_base / f"results_{condition}/temberture_results")),
             'geopoc_results': Path(path_config.get('geopoc_results', 

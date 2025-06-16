@@ -11,20 +11,16 @@ def read_substrate_info(tsv_file):
     with open(tsv_file, 'r') as f:
         reader = csv.DictReader(f, delimiter='\t')
         for row in reader:
-            substrates[row['plastic_id']] = {
+            substrates[row['substrate_id']] = {
                 'substrate': row['substrate'],
                 'smiles': row['smiles']
             }
     return substrates
 
-def create_catpred_input(fasta_file, substrate_name, smiles, output_dir, dir_name=None):
+def create_catpred_input(fasta_file, substrate_name, smiles, output_dir, substrate_id):
     """Create CatPred input CSV file from FASTA sequences."""
-    # Create output directory if it doesn't exist
-    if dir_name:
-        plastic_id = dir_name
-    else:
-        plastic_id = os.path.splitext(os.path.basename(fasta_file))[0]
-    output_path = os.path.join(output_dir, plastic_id)
+    # Create output directory using substrate_id
+    output_path = os.path.join(output_dir, substrate_id)
     os.makedirs(output_path, exist_ok=True)
     
     output_file = os.path.join(output_path, 'input.csv')
@@ -34,7 +30,7 @@ def create_catpred_input(fasta_file, substrate_name, smiles, output_dir, dir_nam
     for record in SeqIO.parse(fasta_file, "fasta"):
         sequences.append(str(record.seq))
     
-    # Check if file already exists (for appending when using same plastic_id)
+    # Check if file already exists (for appending when using same substrate_id)
     file_exists = os.path.exists(output_file)
     seq_counter = 1
     
@@ -61,68 +57,55 @@ def main():
     parser.add_argument('--fasta_dir', required=True, help='Directory containing FASTA files')
     parser.add_argument('--substrate_tsv', required=True, help='TSV file with substrate information')
     parser.add_argument('--output_dir', required=True, help='Output directory for CatPred input files')
-    parser.add_argument('--plastic_id', default=None, help='Optional plastic ID to use for all input files')
+    parser.add_argument('--substrate_id', required=True, help='Substrate ID to use for processing')
     
     args = parser.parse_args()
     
     # Read substrate information
     substrates = read_substrate_info(args.substrate_tsv)
     
-    # If plastic_id is provided, check if it exists in substrates
-    if args.plastic_id and args.plastic_id not in substrates:
-        print(f"Error: Plastic ID '{args.plastic_id}' not found in substrate information")
-        print(f"Available plastic IDs: {', '.join(substrates.keys())}")
+    # Check if substrate_id exists in substrates
+    if args.substrate_id not in substrates:
+        print(f"Error: Substrate ID '{args.substrate_id}' not found in substrate information")
+        print(f"Available substrate IDs: {', '.join(substrates.keys())}")
         return
     
-    # Process each FASTA file
+    # Get substrate information for the provided substrate_id
+    substrate_info = substrates[args.substrate_id]
+    
+    # Process all FASTA files in the directory
     processed_files = []
-    processed_dirs = set()  # Track which directories we've already processed
     
     for fasta_file in os.listdir(args.fasta_dir):
-        if fasta_file.endswith('.faa'):
-            if args.plastic_id:
-                # Use provided plastic_id for all files
-                lookup_plastic_id = args.plastic_id
-                actual_dir_name = args.plastic_id
-                print(f"Processing {fasta_file} with provided plastic_id: {lookup_plastic_id}")
-            else:
-                # Extract plastic_id from filename as before
-                lookup_plastic_id = os.path.splitext(fasta_file)[0]
-                actual_dir_name = lookup_plastic_id
-                print(f"Processing {fasta_file} with filename-derived plastic_id: {lookup_plastic_id}")
+        if fasta_file.endswith('.faa') or fasta_file.endswith('.fasta'):
+            print(f"Processing {fasta_file} with substrate_id: {args.substrate_id}")
             
-            # Skip if no substrate information available
-            if lookup_plastic_id not in substrates:
-                print(f"Skipping {fasta_file}: No substrate information available for {lookup_plastic_id}")
-                continue
-            
-            substrate_info = substrates[lookup_plastic_id]
-            
-            # Use plastic_id as directory name if provided, otherwise use filename
-            dir_name = args.plastic_id if args.plastic_id else None
-            
+            # Create CatPred input for this FASTA file
             input_file = create_catpred_input(
                 os.path.join(args.fasta_dir, fasta_file),
                 substrate_info['substrate'],
                 substrate_info['smiles'],
                 args.output_dir,
-                dir_name
+                args.substrate_id
             )
             
-            # Store mapping: result_directory_name -> original_fasta_file
-            # Only add to processed_files if we haven't seen this directory before
-            if actual_dir_name not in processed_dirs:
-                original_fasta_path = os.path.join(args.fasta_dir, fasta_file)
-                processed_files.append((actual_dir_name, input_file, original_fasta_path))
-                processed_dirs.add(actual_dir_name)
-                
+            # Store the original FASTA file path
+            original_fasta_path = os.path.join(args.fasta_dir, fasta_file)
+            processed_files.append((args.substrate_id, input_file, original_fasta_path))
+            
             print(f"Created input file for {fasta_file} using substrate: {substrate_info['substrate']}")
     
-    # Write the list of processed files with enhanced mapping information
-    with open(os.path.join(args.output_dir, 'processed_files.txt'), 'w') as f:
-        f.write("result_directory\tcatpred_input_file\toriginal_fasta_file\n")
-        for result_dir, input_file, original_fasta in processed_files:
-            f.write(f"{result_dir}\t{input_file}\t{original_fasta}\n")
+    # Write the list of processed files with mapping information
+    if processed_files:
+        with open(os.path.join(args.output_dir, 'processed_files.txt'), 'w') as f:
+            f.write("result_directory\tcatpred_input_file\toriginal_fasta_file\n")
+            for result_dir, input_file, original_fasta in processed_files:
+                f.write(f"{result_dir}\t{input_file}\t{original_fasta}\n")
+        
+        print(f"\nProcessed {len(processed_files)} FASTA files")
+        print(f"All files were placed in directory: {os.path.join(args.output_dir, args.substrate_id)}")
+    else:
+        print("No FASTA files found to process")
 
 if __name__ == '__main__':
     main()

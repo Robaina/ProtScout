@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Script to extract CatPred results into TSV files.
-For each protein group, combines kcat and km predictions and maps sequences to their IDs.
+Maps substrate-based results back to protein groups using the processed_files.txt mapping.
 """
 
 import os
@@ -24,7 +24,7 @@ def parse_arguments():
         description="Extract CatPred results into TSV files per protein group"
     )
     parser.add_argument(
-        "-i", "--input_dir",
+        "--input_dir",
         type=str,
         required=True,
         help="Input directory containing CatPred outputs"
@@ -36,12 +36,43 @@ def parse_arguments():
         help="Directory containing FASTA files with protein sequences"
     )
     parser.add_argument(
-        "-o", "--output_dir",
+        "--output_dir",
         type=str,
         required=True,
         help="Output directory where extracted TSV files will be saved"
     )
+    parser.add_argument(
+        "--catpred_input_dir",
+        type=str,
+        help="Directory containing CatPred input files and processed_files.txt mapping"
+    )
     return parser.parse_args()
+
+def read_processed_files_mapping(catpred_input_dir):
+    """
+    Read the processed_files.txt to get mapping between substrates and protein groups.
+    
+    Returns:
+        dict: Mapping of substrate_id to list of (input_file, original_fasta) tuples
+    """
+    mapping_file = Path(catpred_input_dir) / "processed_files.txt"
+    if not mapping_file.exists():
+        logger.warning(f"Mapping file not found: {mapping_file}")
+        return {}
+    
+    mapping = {}
+    with open(mapping_file, 'r') as f:
+        # Skip header
+        next(f)
+        for line in f:
+            parts = line.strip().split('\t')
+            if len(parts) == 3:
+                substrate_id, input_file, original_fasta = parts
+                if substrate_id not in mapping:
+                    mapping[substrate_id] = []
+                mapping[substrate_id].append((input_file, original_fasta))
+    
+    return mapping
 
 def get_sequence_id_map(faa_file):
     """
@@ -58,30 +89,33 @@ def get_sequence_id_map(faa_file):
         seq_to_id[str(record.seq)] = record.id
     return seq_to_id
 
-def process_protein_group(group_name, input_dir, faa_dir):
+def process_substrate_results(substrate_id, catpred_output_dir, original_fasta_path):
     """
-    Process CatPred results for a specific protein group.
+    Process CatPred results for a specific substrate.
     
     Args:
-        group_name (str): Protein group name
-        input_dir (str): Path to the directory containing CatPred outputs
-        faa_dir (str): Path to the directory containing FASTA files
+        substrate_id (str): Substrate ID (e.g., "PET")
+        catpred_output_dir (str): Path to the CatPred output directory
+        original_fasta_path (str): Path to the original FASTA file
         
     Returns:
         pd.DataFrame: Combined results dataframe
         bool: Whether processing was successful
     """
     # Define file paths
-    kcat_file = Path(input_dir) / group_name / "kcat" / "final_predictions_input.csv"
-    km_file = Path(input_dir) / group_name / "km" / "final_predictions_input.csv"
-    faa_file = Path(faa_dir) / f"{group_name}.faa"
+    kcat_file = Path(catpred_output_dir) / substrate_id / "kcat" / "final_predictions_input.csv"
+    km_file = Path(catpred_output_dir) / substrate_id / "km" / "final_predictions_input.csv"
     
-    # Check if all required files exist
-    if not all(f.exists() for f in [kcat_file, km_file, faa_file]):
-        logger.warning(f"Missing required files for {group_name}, skipping...")
-        for f, name in zip([kcat_file, km_file, faa_file], ["kcat file", "km file", "faa file"]):
+    # Check if required files exist
+    if not all(f.exists() for f in [kcat_file, km_file]):
+        logger.warning(f"Missing required files for substrate {substrate_id}")
+        for f, name in zip([kcat_file, km_file], ["kcat file", "km file"]):
             if not f.exists():
                 logger.warning(f"  - Missing {name}: {f}")
+        return None, False
+    
+    if not Path(original_fasta_path).exists():
+        logger.warning(f"Original FASTA file not found: {original_fasta_path}")
         return None, False
     
     # Read prediction files
@@ -89,7 +123,7 @@ def process_protein_group(group_name, input_dir, faa_dir):
         kcat_df = pd.read_csv(kcat_file)
         km_df = pd.read_csv(km_file)
     except Exception as e:
-        logger.error(f"Error reading prediction files for {group_name}: {e}")
+        logger.error(f"Error reading prediction files for {substrate_id}: {e}")
         return None, False
     
     # Check if required columns exist
@@ -97,19 +131,19 @@ def process_protein_group(group_name, input_dir, faa_dir):
     km_cols = ["Substrate", "SMILES", "sequence", "Prediction_(mM)"]
     
     if not all(col in kcat_df.columns for col in kcat_cols):
-        logger.warning(f"Missing required columns in kcat file for {group_name}: {set(kcat_cols) - set(kcat_df.columns)}")
+        logger.warning(f"Missing required columns in kcat file for {substrate_id}: {set(kcat_cols) - set(kcat_df.columns)}")
         return None, False
         
     if not all(col in km_df.columns for col in km_cols):
-        logger.warning(f"Missing required columns in km file for {group_name}: {set(km_cols) - set(km_df.columns)}")
+        logger.warning(f"Missing required columns in km file for {substrate_id}: {set(km_cols) - set(km_df.columns)}")
         return None, False
     
-    # Create sequence to ID mapping
+    # Create sequence to ID mapping from original FASTA
     try:
-        seq_to_id = get_sequence_id_map(faa_file)
-        logger.info(f"Loaded {len(seq_to_id)} sequences from {faa_file}")
+        seq_to_id = get_sequence_id_map(original_fasta_path)
+        logger.info(f"Loaded {len(seq_to_id)} sequences from {original_fasta_path}")
     except Exception as e:
-        logger.error(f"Error processing FASTA file for {group_name}: {e}")
+        logger.error(f"Error processing FASTA file: {e}")
         return None, False
     
     # Extract relevant columns
@@ -124,7 +158,7 @@ def process_protein_group(group_name, input_dir, faa_dir):
         how="inner"
     )
     
-    logger.info(f"Merged data has {len(merged_df)} entries for {group_name}")
+    logger.info(f"Merged data has {len(merged_df)} entries for substrate {substrate_id}")
     
     # Add sequence ID column
     merged_df["sequence_id"] = merged_df["sequence"].map(seq_to_id)
@@ -132,7 +166,7 @@ def process_protein_group(group_name, input_dir, faa_dir):
     # Check if all sequences were mapped
     unmapped = merged_df[merged_df["sequence_id"].isna()]
     if not unmapped.empty:
-        logger.warning(f"Warning: {len(unmapped)} sequences in {group_name} could not be mapped to IDs")
+        logger.warning(f"Warning: {len(unmapped)} sequences could not be mapped to IDs")
     
     # Rearrange columns to put sequence_id first
     final_cols = ["sequence_id", "sequence", "Substrate", "SMILES", 
@@ -148,44 +182,90 @@ def main():
     # Parse command line arguments
     args = parse_arguments()
     
-    logger.info(f"Input directory: {args.input_dir}")
+    logger.info(f"CatPred output directory: {args.input_dir}")
     logger.info(f"FASTA directory: {args.faa_dir}")
     logger.info(f"Output directory: {args.output_dir}")
     
     # Create output directory if it doesn't exist
     os.makedirs(args.output_dir, exist_ok=True)
     
-    # Get all protein groups by listing subdirectories in catpred output
-    try:
-        input_path = Path(args.input_dir)
-        protein_groups = [d.name for d in input_path.iterdir() if d.is_dir()]
-    except FileNotFoundError:
-        logger.error(f"Error: CatPred output directory not found: {args.input_dir}")
-        return
+    # Read the mapping file to understand the directory structure
+    # The processed_files.txt is created in the catpred input directory by prepare_catpred_inputs.py
+    # Look for it in several possible locations
+    possible_locations = []
     
-    if not protein_groups:
-        logger.warning(f"No protein groups found in the output directory: {args.input_dir}")
-        return
+    # First, try the explicitly provided catpred_input_dir
+    if args.catpred_input_dir:
+        possible_locations.append(Path(args.catpred_input_dir))
     
-    logger.info(f"Found {len(protein_groups)} protein groups: {', '.join(protein_groups)}")
+    # Then try other common locations
+    possible_locations.extend([
+        Path(args.input_dir).parent.parent / "data" / "catpred_data",  # Standard location
+        Path(args.input_dir).parent / "catpred_data",  # Alternative location
+        Path(args.input_dir).parent / "catpred",  # Another alternative
+        Path(args.input_dir),  # Try the input_dir itself
+    ])
     
-    # Process each protein group
-    success_count = 0
-    for group_name in protein_groups:
-        logger.info(f"Processing {group_name}...")
-        result_df, success = process_protein_group(group_name, args.input_dir, args.faa_dir)
+    mapping = {}
+    for location in possible_locations:
+        if location.exists():
+            mapping = read_processed_files_mapping(location)
+            if mapping:
+                logger.info(f"Found mapping file in: {location}")
+                break
+    
+    if not mapping:
+        # If we still don't have a mapping, try to infer from the directory structure
+        logger.warning("No mapping file found, attempting to infer from directory structure...")
+        # Look for substrate directories in the output
+        output_path = Path(args.input_dir)
+        substrate_dirs = [d for d in output_path.iterdir() if d.is_dir() and (d / "kcat").exists()]
         
-        if success:
-            # Save to TSV
-            output_file = Path(args.output_dir) / f"{group_name}.tsv"
-            result_df.to_csv(output_file, sep='\t', index=False)
-            logger.info(f"Successfully saved results for {group_name} to {output_file}")
-            logger.info(f"  - Processed {len(result_df)} entries")
-            success_count += 1
-        else:
-            logger.error(f"Failed to process {group_name}")
+        if substrate_dirs:
+            # Create a synthetic mapping
+            for substrate_dir in substrate_dirs:
+                substrate_id = substrate_dir.name
+                # Find all fasta files in the faa_dir
+                fasta_files = list(Path(args.faa_dir).glob("*.faa"))
+                for fasta_file in fasta_files:
+                    if substrate_id not in mapping:
+                        mapping[substrate_id] = []
+                    mapping[substrate_id].append(("dummy_input", str(fasta_file)))
+            logger.info(f"Inferred mapping for substrates: {list(mapping.keys())}")
     
-    logger.info(f"Processing complete. Successfully processed {success_count}/{len(protein_groups)} protein groups.")
+    if not mapping:
+        logger.error("No processed files mapping found. Cannot determine protein groups.")
+        return
+    
+    # Process each substrate and map back to protein groups
+    processed_groups = {}
+    
+    for substrate_id, file_list in mapping.items():
+        logger.info(f"Processing substrate: {substrate_id}")
+        
+        for input_file, original_fasta in file_list:
+            # Extract protein group name from original FASTA path
+            fasta_basename = Path(original_fasta).stem  # e.g., "sequences" from "sequences.faa"
+            
+            logger.info(f"  Processing results for protein group: {fasta_basename}")
+            
+            result_df, success = process_substrate_results(
+                substrate_id, 
+                args.input_dir, 
+                original_fasta
+            )
+            
+            if success:
+                # Save to TSV using protein group name, not substrate name
+                output_file = Path(args.output_dir) / f"{fasta_basename}.tsv"
+                result_df.to_csv(output_file, sep='\t', index=False)
+                logger.info(f"  Successfully saved results to {output_file}")
+                logger.info(f"  - Processed {len(result_df)} entries")
+                processed_groups[fasta_basename] = True
+            else:
+                logger.error(f"  Failed to process results for {fasta_basename}")
+    
+    logger.info(f"Processing complete. Successfully processed {len(processed_groups)} protein groups.")
 
 if __name__ == "__main__":
     main()

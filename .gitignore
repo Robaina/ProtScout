@@ -51,3 +51,6 @@ dmypy.json
 
 # Logs
 *.log
+
+tests/outputs
+tests/results

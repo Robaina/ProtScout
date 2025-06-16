@@ -30,7 +30,7 @@ function show_help {
 
 # Function to count running CatPred containers
 count_containers() {
-    docker ps --format '{{.Names}}' | grep -c "^${CONTAINER_NAME}_"
+    docker ps --format '{{.Names}}' | grep -c "^${CONTAINER_NAME}_" || true
 }
 
 # Parse command line arguments
@@ -142,8 +142,16 @@ declare -a OUTPUT_DIRS
 TOTAL_JOBS=0
 CURRENT_JOB=0
 
-# First, count the number of jobs
-while IFS=$'\t' read -r protein_group_id input_file; do
+# First, count the number of jobs (skip header line)
+LINE_NUM=0
+while IFS=$'\t' read -r protein_group_id catpred_input_file original_fasta_file; do
+    LINE_NUM=$((LINE_NUM + 1))
+    # Skip header line
+    if [ $LINE_NUM -eq 1 ]; then
+        if [[ "$protein_group_id" == "result_directory" || "$protein_group_id" == "protein_group_id" ]]; then
+            continue
+        fi
+    fi
     # Two jobs per protein group (kcat and km)
     TOTAL_JOBS=$((TOTAL_JOBS + 2))
 done < "${INPUT_DIR}/${PROCESSED_FILE}"
@@ -153,9 +161,35 @@ if [ "$QUIET" = false ]; then
 fi
 
 # Process each protein group
-while IFS=$'\t' read -r protein_group_id input_file; do
+LINE_NUM=0
+while IFS=$'\t' read -r protein_group_id catpred_input_file original_fasta_file; do
+    LINE_NUM=$((LINE_NUM + 1))
+    
+    # Skip header line
+    if [ $LINE_NUM -eq 1 ]; then
+        if [[ "$protein_group_id" == "result_directory" || "$protein_group_id" == "protein_group_id" ]]; then
+            if [ "$QUIET" = false ]; then
+                echo "Skipping header line..."
+            fi
+            continue
+        fi
+    fi
+    
+    # Skip empty lines
+    if [ -z "$protein_group_id" ]; then
+        continue
+    fi
+    
     if [ "$QUIET" = false ]; then
         echo "Processing ${protein_group_id}..."
+    fi
+    
+    # Verify input file exists
+    EXPECTED_INPUT="${INPUT_DIR}/${protein_group_id}/input.csv"
+    if [ ! -f "${EXPECTED_INPUT}" ]; then
+        echo "Warning: Input file not found for ${protein_group_id}: ${EXPECTED_INPUT}"
+        echo "Skipping ${protein_group_id}..."
+        continue
     fi
     
     # Create protein-group-specific output directories for kcat and km
@@ -182,12 +216,23 @@ while IFS=$'\t' read -r protein_group_id input_file; do
         echo "[${CURRENT_JOB}/${TOTAL_JOBS}] Running CatPred for ${protein_group_id} - kcat parameter (Container: ${KCAT_CONTAINER_ID})..."
     fi
     
+    # Build docker command parts
+    DOCKER_GPU_FLAG=""
+    if [ "$GPU_ENABLED" = true ]; then
+        DOCKER_GPU_FLAG="--gpus ${GPUS_VALUE}"
+    fi
+    
+    DOCKER_SHM_FLAG=""
+    if [ -n "${SHM_SIZE}" ]; then
+        DOCKER_SHM_FLAG="--shm-size=${SHM_SIZE}"
+    fi
+    
     # Run CatPred container for kcat parameter in background
     if [ "$QUIET" = true ]; then
-        docker run --name "${KCAT_CONTAINER_ID}" --rm $([ "$GPU_ENABLED" = true ] && echo "--gpus \"${GPUS_VALUE}\"") $([ -n "${SHM_SIZE}" ] && echo "--shm-size=${SHM_SIZE}") \
-            -v "${INPUT_DIR}":/input \
+        docker run --name "${KCAT_CONTAINER_ID}" --rm ${DOCKER_GPU_FLAG} ${DOCKER_SHM_FLAG} \
+            -v "${INPUT_DIR}":/input:rw \
             -v "${KCAT_OUTPUT_DIR}":/output:rw \
-            -v "${WEIGHTS_DIR}":/weights \
+            -v "${WEIGHTS_DIR}":/weights:ro \
             ${DOCKER_IMAGE} \
             --parameter kcat \
             --input_file "/input/${protein_group_id}/input.csv" \
@@ -195,10 +240,10 @@ while IFS=$'\t' read -r protein_group_id input_file; do
             $USE_GPU \
             $DOCKER_QUIET > /dev/null 2>&1 &
     else
-        docker run --name "${KCAT_CONTAINER_ID}" --rm $([ "$GPU_ENABLED" = true ] && echo "--gpus \"${GPUS_VALUE}\"") $([ -n "${SHM_SIZE}" ] && echo "--shm-size=${SHM_SIZE}") \
-            -v "${INPUT_DIR}":/input \
+        docker run --name "${KCAT_CONTAINER_ID}" --rm ${DOCKER_GPU_FLAG} ${DOCKER_SHM_FLAG} \
+            -v "${INPUT_DIR}":/input:rw \
             -v "${KCAT_OUTPUT_DIR}":/output:rw \
-            -v "${WEIGHTS_DIR}":/weights \
+            -v "${WEIGHTS_DIR}":/weights:ro \
             ${DOCKER_IMAGE} \
             --parameter kcat \
             --input_file "/input/${protein_group_id}/input.csv" \
@@ -230,10 +275,10 @@ while IFS=$'\t' read -r protein_group_id input_file; do
     
     # Run CatPred container for km parameter in background
     if [ "$QUIET" = true ]; then
-        docker run --name "${KM_CONTAINER_ID}" --rm $([ "$GPU_ENABLED" = true ] && echo "--gpus \"${GPUS_VALUE}\"") $([ -n "${SHM_SIZE}" ] && echo "--shm-size=${SHM_SIZE}") \
-            -v "${INPUT_DIR}":/input \
+        docker run --name "${KM_CONTAINER_ID}" --rm ${DOCKER_GPU_FLAG} ${DOCKER_SHM_FLAG} \
+            -v "${INPUT_DIR}":/input:rw \
             -v "${KM_OUTPUT_DIR}":/output:rw \
-            -v "${WEIGHTS_DIR}":/weights \
+            -v "${WEIGHTS_DIR}":/weights:ro \
             ${DOCKER_IMAGE} \
             --parameter km \
             --input_file "/input/${protein_group_id}/input.csv" \
@@ -241,10 +286,10 @@ while IFS=$'\t' read -r protein_group_id input_file; do
             $USE_GPU \
             $DOCKER_QUIET > /dev/null 2>&1 &
     else
-        docker run --name "${KM_CONTAINER_ID}" --rm $([ "$GPU_ENABLED" = true ] && echo "--gpus \"${GPUS_VALUE}\"") $([ -n "${SHM_SIZE}" ] && echo "--shm-size=${SHM_SIZE}") \
-            -v "${INPUT_DIR}":/input \
+        docker run --name "${KM_CONTAINER_ID}" --rm ${DOCKER_GPU_FLAG} ${DOCKER_SHM_FLAG} \
+            -v "${INPUT_DIR}":/input:rw \
             -v "${KM_OUTPUT_DIR}":/output:rw \
-            -v "${WEIGHTS_DIR}":/weights \
+            -v "${WEIGHTS_DIR}":/weights:ro \
             ${DOCKER_IMAGE} \
             --parameter km \
             --input_file "/input/${protein_group_id}/input.csv" \
@@ -291,19 +336,22 @@ FAILURE=0
 for i in "${!JOB_IDS[@]}"; do
     CONTAINER_ID="${JOB_IDS[$i]}"
     OUTPUT_DIR="${OUTPUT_DIRS[$i]}"
-    OUTPUT_FILE="${OUTPUT_DIR}/final_predictions_input.csv"
-    
-    if [ -f "$OUTPUT_FILE" ]; then
-        # File exists, job was successful
+
+    # Look for any final_predictions_*.csv in the output directory
+    FOUND_FILES=( "${OUTPUT_DIR}"/final_predictions_*.csv )
+    if [ -e "${FOUND_FILES[0]}" ]; then
+        # At least one matching file was found
         SUCCESS=$((SUCCESS + 1))
         if [ "$QUIET" = false ]; then
-            echo "Job ${CONTAINER_ID} completed successfully: ${OUTPUT_FILE} exists"
+            for f in "${FOUND_FILES[@]}"; do
+                [ -e "$f" ] && echo "Job ${CONTAINER_ID} completed successfully: $(basename "$f")"
+            done
         fi
     else
-        # File doesn't exist, job failed
+        # No matching file, job failed
         FAILURE=$((FAILURE + 1))
         if [ "$QUIET" = false ]; then
-            echo "Error: Job ${CONTAINER_ID} failed: ${OUTPUT_FILE} not found"
+            echo "Error: Job ${CONTAINER_ID} failed: no final_predictions_*.csv in ${OUTPUT_DIR}"
         fi
     fi
 done

@@ -1,1 +1,2 @@
 result_directory	catpred_input_file	original_fasta_file
+PET	/home/ubuntu/lab4/ProtScout/tests/data/catpred_data/PET/input.csv	/home/ubuntu/lab4/ProtScout/tests/data/clean_sequences/sequences.faa

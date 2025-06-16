@@ -91,18 +91,4 @@ clean_sequences:
 
 # Steps to execute (comment out to skip)
 steps:
-  - clean_sequences
-  - esmfold
-  - esm2
-  - remove_sequences_without_pdb
-  - prepare_catpred
   - catpred
-  - temberture
-  - geopoc
-  - gatsol
-  - classical_properties
-  - process_temberture
-  - process_geopoc
-  - process_gatsol
-  - process_catpred
-  - consolidate_results

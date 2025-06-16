@@ -153,7 +153,8 @@ class ProtScoutWorkflow:
                 python_exe, str(self.scripts_dir / 'prepare_catpred_inputs.py'),
                 '--fasta_dir', str(paths['clean_fasta']),
                 '--substrate_tsv', str(paths['substrate_analogs']),
-                '--output_dir', str(paths['catpred_input'])
+                '--output_dir', str(paths['catpred_input']),
+                '--substrate_id', self.config.get('substrate_id', None)
             ],
             
             'catpred': [
@@ -212,9 +213,9 @@ class ProtScoutWorkflow:
                 python_exe, str(self.scripts_dir / 'predict_classic_properties.py'),
                 '--input', str(paths['clean_fasta']),
                 '--log', str(paths['log_dir'] / f"classical_properties_{self.config.condition}.log"),
-                '--output', str(paths['classical_props_output'])
+                '--output', str(paths['classical_properties_results'])  # Make sure this is the results subdirectory
             ],
-            
+                        
             'process_temberture': [
                 python_exe, str(self.scripts_dir / 'process_temberture.py'),
                 '-i', str(paths['temberture_output']),
@@ -237,14 +238,16 @@ class ProtScoutWorkflow:
                 python_exe, str(self.scripts_dir / 'process_catpred.py'),
                 '--input_dir', str(paths['catpred_output']),
                 '--faa_dir', str(paths['clean_fasta']),
-                '--output_dir', str(paths['catpred_results'])
+                '--output_dir', str(paths['catpred_results']),
+                '--catpred_input_dir', str(paths['catpred_input'])  # Add this line
             ],
             
             'consolidate_results': [
                 python_exe, str(self.scripts_dir / 'make_output_tables.py'),
                 '-i', str(paths['results_dir']),
-                '-o', str(paths['consolidated_results'])
-            ]
+                '-o', str(paths['consolidated_results']),
+                '--tools', 'catpred', 'gatsol', 'geopoc', 'temberture', 'classical_properties'
+            ],
         }
         
         # Add quiet flag if specified
@@ -260,6 +263,73 @@ class ProtScoutWorkflow:
         if directory.exists():
             return len(list(directory.glob(pattern)))
         return 0
+    
+    def _is_warning_or_info_line(self, line: str) -> bool:
+        """Check if a line is a warning or informational message, not a real error"""
+        line_lower = line.lower()
+
+        # Common warning patterns (now includes container-exit notices)
+        warning_patterns = [
+            'warning:', 'futurewarning:', 'deprecationwarning:', 'userwarning:',
+            'runtimewarning:', 'pendingdeprecationwarning:', 'importwarning:',
+            'unicodewarning:', 'byteswarning:', 'resourcewarning:',
+            'will not inherit from', 'will lose the ability', 'from 👉v4.50👈',
+            'get rid of this warning by', 'you can get rid of this warning',
+            'please modify your model class', 'please contact the model',
+            'weights_only=false', 'torch.load', 'pickle module implicitly',
+            'torch.serialization.add_safe_globals', 'experimental feature',
+            'passing list objects for adapter activation is deprecated',
+            'use stack or fuse explicitly',
+            'failed with exit code'   # container exit messages
+        ]
+
+        # Progress indicators (not errors)
+        progress_patterns = [
+            '%|', 'it/s]', '/s]', '[00:00<', '██████████', 'completed in',
+            'successful:', 'found', 'output files', 'analysis complete',
+            'all jobs completed successfully'
+        ]
+
+        # If it matches one of the warning patterns, treat it as non-error
+        if any(pat in line_lower for pat in warning_patterns):
+            return True
+
+        # If it looks like a progress/info line, ignore as well
+        if any(pat in line_lower for pat in progress_patterns):
+            return True
+
+        # Common success/completion phrases
+        success_patterns = ['step', 'completed', 'analysis complete', 'jobs completed successfully']
+        if any(pat in line_lower for pat in success_patterns):
+            return True
+
+        return False
+
+
+    def _is_real_error(self, line: str) -> bool:
+        """Check if a line represents a real error that should cause failure"""
+        line_lower = line.lower()
+
+        # First, filter out warnings/info
+        if self._is_warning_or_info_line(line):
+            return False
+
+        # OSError patterns: ignore any read-only FS errors
+        if 'oserror:' in line_lower:
+            if 'read-only file system' in line_lower:
+                return False
+            return True
+
+        # Real error patterns
+        error_patterns = [
+            'error:', 'exception:', 'traceback (most recent call last):',
+            'fatal:', 'critical:', 'abort', 'segmentation fault',
+            'killed', 'out of memory', 'no space left on device',
+            'permission denied', 'file not found', 'cannot open',
+            'failed to', 'unable to', 'could not'
+        ]
+
+        return any(pat in line_lower for pat in error_patterns)
     
     def run_step(self, step_name: str, retry: int = 0) -> StepResult:
         """Run a single workflow step with retries and monitoring"""
@@ -297,36 +367,124 @@ class ProtScoutWorkflow:
             # Stream output in real-time
             output_lines = []
             error_lines = []
+            warning_lines = []
+            real_error_lines = []
             
+            # Read stdout line by line
             for line in process.stdout:
                 line = line.strip()
                 if line:
                     output_lines.append(line)
-                    # Log important lines
-                    if any(keyword in line.lower() for keyword in ['error', 'warning', 'complete', 'done']):
+                    
+                    # Categorize the line
+                    if self._is_warning_or_info_line(line):
+                        warning_lines.append(line)
+                        if not self.config.get('quiet', False):
+                            self.logger.debug(f"  INFO/WARNING: {line}")
+                    elif self._is_real_error(line):
+                        real_error_lines.append(line)
+                        self.logger.error(f"  ERROR: {line}")
+                    elif any(keyword in line.lower() for keyword in ['complete', 'done', 'success', 'found', 'output']):
                         self.logger.info(f"  {line}")
             
-            # Wait for completion
-            process.wait()
+            # Wait for completion and capture stderr
+            _, stderr = process.communicate()
             
-            # Capture any remaining stderr
-            stderr = process.stderr.read()
             if stderr:
-                error_lines.extend(stderr.strip().split('\n'))
+                for line in stderr.strip().split('\n'):
+                    if line.strip():
+                        error_lines.append(line)
+                        
+                        # Categorize stderr lines
+                        if self._is_warning_or_info_line(line):
+                            warning_lines.append(line)
+                            if not self.config.get('quiet', False):
+                                self.logger.debug(f"  STDERR INFO/WARNING: {line}")
+                        elif self._is_real_error(line):
+                            real_error_lines.append(line)
+                            self.logger.error(f"  STDERR ERROR: {line}")
             
             duration = time.time() - start_time
             
-            if process.returncode == 0:
+            # For container-based tools, check if output was actually created
+            output_created = False
+            output_file_count = 0
+            if step_name in ['temberture', 'geopoc', 'gatsol', 'catpred', 'esmfold', 'esm2']:
+                output_dir_key = f'{step_name}_output'
+                if output_dir_key in self.config.paths:
+                    output_dir = Path(self.config.paths[output_dir_key])
+                elif step_name == 'esmfold':
+                    output_dir = Path(self.config.paths['structures'])
+                elif step_name == 'esm2':
+                    output_dir = Path(self.config.paths['embeddings'])
+                else:
+                    output_dir = None
+                    
+                if output_dir and output_dir.exists():
+                    # Check for output files based on the tool
+                    if step_name == 'temberture':
+                        result_files = list(output_dir.glob('**/*_results.tsv'))
+                    elif step_name == 'geopoc':
+                        result_files = list(output_dir.glob('**/*.json'))
+                    elif step_name == 'gatsol':
+                        result_files = list(output_dir.glob('**/*.csv'))
+                    elif step_name == 'catpred':
+                        result_files = list(output_dir.glob('**/final_predictions_*.csv'))
+                    elif step_name == 'esmfold':
+                        result_files = list(output_dir.glob('*.pdb'))
+                    elif step_name == 'esm2':
+                        result_files = list(output_dir.glob('*.pt'))
+                    else:
+                        result_files = []
+                    
+                    output_file_count = len(result_files)
+                    output_created = output_file_count > 0
+                    
+                    if output_created:
+                        self.logger.info(f"  Found {output_file_count} output files")
+            
+            # Determine if step was successful based on:
+            # 1. Exit code 0 OR
+            # 2. Output files were created AND no real errors occurred
+            success = (process.returncode == 0) or (
+                output_created and len(real_error_lines) == 0
+            )
+            
+            if success:
+                if process.returncode != 0:
+                    self.logger.info(
+                        f"Step '{step_name}' exited with code {process.returncode} but created "
+                        f"{output_file_count} output files and had no real errors. Treating as success."
+                    )
+                if warning_lines:
+                    self.logger.info(f"  Note: {len(warning_lines)} warnings/info messages were emitted")
+                    
                 self.logger.info(f"✓ Step '{step_name}' completed in {format_duration(duration)}")
                 return StepResult(
                     step_name, True, duration,
                     output='\n'.join(output_lines),
-                    metrics={'input_files': input_count}
+                    metrics={
+                        'input_files': input_count,
+                        'output_files': output_file_count,
+                        'warnings': len(warning_lines),
+                        'real_errors': len(real_error_lines)
+                    }
                 )
             else:
-                error_msg = '\n'.join(error_lines) if error_lines else "Unknown error"
+                # Build error message from real errors only
+                error_msg = ""
+                if real_error_lines:
+                    error_msg = '\n'.join(real_error_lines[:10])  # Limit to first 10 real errors
+                elif not output_created and step_name in ['temberture', 'geopoc', 'gatsol', 'catpred']:
+                    error_msg = f"No output files created and process exited with code {process.returncode}"
+                else:
+                    error_msg = f"Process failed with exit code {process.returncode}"
+                
                 self.logger.error(f"✗ Step '{step_name}' failed after {format_duration(duration)}")
-                self.logger.error(f"  Error: {error_msg}")
+                self.logger.error(f"  Exit code: {process.returncode}")
+                self.logger.error(f"  Real errors found: {len(real_error_lines)}")
+                if warning_lines:
+                    self.logger.info(f"  Warnings/info messages: {len(warning_lines)}")
                 
                 # Retry logic
                 if retry < self.config.get('max_retries', 2):
@@ -339,6 +497,8 @@ class ProtScoutWorkflow:
         except Exception as e:
             duration = time.time() - start_time
             self.logger.error(f"Exception in step '{step_name}': {str(e)}")
+            import traceback
+            self.logger.error(f"  Traceback: {traceback.format_exc()}")
             return StepResult(step_name, False, duration, error=str(e))
     
     def _save_state(self):

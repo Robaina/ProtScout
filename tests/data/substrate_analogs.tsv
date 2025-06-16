@@ -1,4 +1,4 @@
-plastic_id	plastic_name	substrate	smiles	reference
+substrate_id	plastic_name	substrate	smiles	reference
 Nylon	Nylon	N-acetyl-GABA-pNP ester	CC(=O)NCCCC(=O)Oc1ccc([N+](=O)[O-])cc1	https://www.sciencedirect.com/science/article/abs/pii/S0003269724001428
 BHET	Polyethylene terephthalate	Bis(2-hydroxyethyl) terephthalate (BHET)	O=C(OCCO)c1ccc(C(=O)OCCO)cc1	https://www.nature.com/articles/s41467-024-45662-9
 PE	Polyethylene	Dodecane	CCCCCCCCCCCC	https://bmcbiotechnol.biomedcentral.com/articles/10.1186/s12896-023-00787-5
