@@ -16,9 +16,13 @@ console = Console()
 @click.group()
 @click.version_option(version='0.1.0')
 def cli():
-    """ProtScout - Modular Protein Analysis Pipeline
-    
-    A comprehensive workflow for protein structure prediction and property analysis.
+    """
+PROTSCOUT
+
+A Modular AI-driven Protein Analysis Pipeline
+
+A comprehensive workflow for protein structure prediction and property analysis.
+Semidán Robaina Estévez (semidan@newatlantis.io), 2025.
     """
     pass
 
