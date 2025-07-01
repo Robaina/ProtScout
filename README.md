@@ -143,6 +143,7 @@ modeldir: /home/ubuntu/lab4/model_weights
 memory: 100g
 workers: 2
 quiet: true
+# preserve_artifacts: false  # clear artifacts directory before each run (set to true to keep previous outputs)
 
 # Container configuration
 containers:
@@ -178,19 +179,23 @@ See `configs/example_workflow.yaml` for a complete example.
 ## 📊 Output Structure
 
 ```
-results/
-└── pazy_homologs_total/
-    ├── outputs_ultra/
-    │   ├── structures/      # PDB files from ESMFold
-    │   ├── embeddings/      # ESM-2 embeddings
-    │   ├── catpred/         # CatPred predictions
-    │   ├── temberture/      # Temperature predictions
-    │   ├── geopoc/          # Environmental predictions
-    │   └── gatsol/          # Solubility predictions
-    └── results_ultra/
-        ├── classical_properties/
-        ├── *_results/           # Processed results
-        └── consolidated_results/ # Final tables
+<artifacts_dir>/                  # raw outputs (artifacts)
+├── structures/                   # PDB files from ESMFold
+├── embeddings/                   # ESM-2 embeddings
+├── clean_sequences/              # cleaned FASTA files
+├── catpred_data/                 # prepared inputs for CatPred
+├── catpred/                      # CatPred raw output
+├── temberture/                   # temperature stability predictions
+├── geopoc/                       # environmental predictions (temp, pH, salt)
+└── gatsol/                       # solubility predictions
+
+<results_dir>/                    # processed results
+├── classical_properties_results/ # classical property outputs
+├── temberture_results/            # processed temperature results
+├── geopoc_results/                # processed environmental results
+├── gatsol_results/                # processed solubility results
+├── catpred_results/               # processed CatPred results
+└── consolidated_results/          # final consolidated tables
 ```
 
 ## 🔄 Resume Capability

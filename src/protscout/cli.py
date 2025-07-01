@@ -174,6 +174,8 @@ def init(output: Path, condition: str, workdir: Optional[Path], modeldir: Option
         'workers': 2,
         'quiet': True,
         'max_retries': 2,
+        # If false, artifacts/outputs directory is cleaned before each run
+        'preserve_artifacts': False,
         
         'containers': {
             'esmfold': {

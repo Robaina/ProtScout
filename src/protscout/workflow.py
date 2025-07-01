@@ -9,6 +9,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import psutil
 import signal
+import shutil
 
 from .utils import format_duration, check_docker_running, get_gpu_info
 
@@ -42,7 +43,19 @@ class ProtScoutWorkflow:
         
         # Check prerequisites
         self._check_prerequisites()
-        
+        # Clear artifacts (raw outputs) directory before run unless preserving or resuming
+        preserve = self.config.get('preserve_artifacts', False)
+        artifacts_dir = self.config.paths['output_dir']
+        if not resume and not preserve and artifacts_dir.exists():
+            for item in artifacts_dir.iterdir():
+                try:
+                    if item.is_dir():
+                        shutil.rmtree(item)
+                    else:
+                        item.unlink()
+                except Exception:
+                    self.logger.warning(f"Could not remove artifact: {item}")
+            self.logger.info(f"Cleared artifacts directory: {artifacts_dir}")
         # Load previous state if resuming
         if resume:
             self._load_state()

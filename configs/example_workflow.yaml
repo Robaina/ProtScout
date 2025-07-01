@@ -7,49 +7,23 @@ python_executable: /home/ubuntu/.conda/envs/protscout/bin/python
 substrate_id: "PET"
 
 paths:
-  # Input/output base directories
+  # Base directories
   input_base: /home/ubuntu/lab4/ProtScout/tests/data
-  output_base: /home/ubuntu/lab4/ProtScout/tests/results
-  
-  # Specific input paths
   substrate_analogs: /home/ubuntu/lab4/ProtScout/tests/data/substrate_analogs.tsv
-  input_fasta: /home/ubuntu/lab4/ProtScout/tests/data/sequences
-  clean_fasta: /home/ubuntu/lab4/ProtScout/tests/data/clean_sequences
-  
-  # Specific output directories
-  output_dir: /home/ubuntu/lab4/ProtScout/tests/outputs
-  results_dir: /home/ubuntu/lab4/ProtScout/tests/results
-  structures: /home/ubuntu/lab4/ProtScout/tests/outputs/structures
-  embeddings: /home/ubuntu/lab4/ProtScout/tests/outputs/embeddings
-  
-  # Tool-specific paths
-  catpred_input: /home/ubuntu/lab4/ProtScout/tests/data/catpred_data
-  temberture_output: /home/ubuntu/lab4/ProtScout/tests/outputs/temberture
-  geopoc_output: /home/ubuntu/lab4/ProtScout/tests/outputs/geopoc
-  gatsol_output: /home/ubuntu/lab4/ProtScout/tests/outputs/gatsol
-  catpred_output: /home/ubuntu/lab4/ProtScout/tests/outputs/catpred
-  # REMOVE THE LINE BELOW
-  # classical_props_output: /home/ubuntu/lab4/ProtScout/tests/outputs/classical_properties 
-  
-  # Results processing paths
-  temberture_results: /home/ubuntu/lab4/ProtScout/tests/results/temberture_results
-  geopoc_results: /home/ubuntu/lab4/ProtScout/tests/results/geopoc_results
-  gatsol_results: /home/ubuntu/lab4/ProtScout/tests/results/gatsol_results
-  catpred_results: /home/ubuntu/lab4/ProtScout/tests/results/catpred_results
-  consolidated_results: /home/ubuntu/lab4/ProtScout/tests/results/consolidated_results
-  
-  # Model paths
+  artifacts_base: /home/ubuntu/lab4/ProtScout/tests/artifacts
+  results_base: /home/ubuntu/lab4/ProtScout/tests/results
+  # Optional model weight overrides
   geopoc_model: /home/ubuntu/lab4/model_weights/geopoc
   gatsol_model: /home/ubuntu/lab4/model_weights/gatsol
+  # Override default log directory
+  log_dir: /home/ubuntu/lab4/ProtScout/tests/logs
   
-  # Log directory
-  logs: /home/ubuntu/lab4/ProtScout/tests/logs
-
 # Resource allocation
 memory: 100g
 workers: 2
 quiet: false
 max_retries: 2
+preserve_artifacts: false  # set true to keep previous artifacts between runs
 
 # Container configuration
 containers:

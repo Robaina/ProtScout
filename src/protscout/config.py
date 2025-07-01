@@ -36,20 +36,41 @@ class Config:
 
         # Define base directories
         input_base = Path(path_config.get('input_base', workdir / "data"))
-        output_base = Path(path_config.get('output_base', workdir / "results"))
+        # Base directory for raw outputs (artifacts)
+        artifacts_base = Path(path_config.get('artifacts_base',
+                                    path_config.get('output_base',
+                                                    workdir / "results")))
+        # Base directory for processed results
+        results_base = Path(path_config.get('results_base',
+                                   path_config.get('output_base',
+                                                   workdir / "results")))
         
-        # Define the main results directory FIRST
-        results_dir = Path(path_config.get('results_dir', output_base / f"results_{condition}"))
-        
-        # Define the main raw outputs directory
-        output_dir = Path(path_config.get('output_dir', output_base / f"outputs_{condition}"))
+        # Define the main artifacts directory (raw outputs)
+        # If not explicitly set, use artifacts_base directly (no nested condition)
+        output_dir = Path(path_config.get('output_dir', artifacts_base))
+        # Define the main processed results directory
+        # If not explicitly set, use results_base directly (no nested condition)
+        results_dir = Path(path_config.get('results_dir', results_base))
 
+        # Determine input directory and cleaned sequences directory (as artifacts)
+        input_fasta = Path(path_config.get('input_fasta', input_base / "sequences"))
+        # clean_fasta defaults to an artifacts subdirectory unless overridden
+        if 'clean_fasta' in path_config:
+            clean_fasta = Path(path_config['clean_fasta'])
+        else:
+            clean_fasta = output_dir / f"clean_{input_fasta.name}"
+        substrate_analogs = Path(path_config.get('substrate_analogs', input_base / "substrate_analogs.tsv"))
+        # catpred_input defaults to an artifacts subdirectory unless overridden
+        if 'catpred_input' in path_config:
+            catpred_input = Path(path_config['catpred_input'])
+        else:
+            catpred_input = output_dir / "catpred_data"
         self.paths = {
             # Input paths
-            'input_fasta': Path(path_config.get('input_fasta', input_base / condition)),
-            'clean_fasta': Path(path_config.get('clean_fasta', input_base / f"clean_{condition}")),
-            'substrate_analogs': Path(path_config.get('substrate_analogs', workdir / "data/substrate_analogs.tsv")),
-            'catpred_input': Path(path_config.get('catpred_input', input_base / "catpred_data")),
+            'input_fasta': input_fasta,
+            'clean_fasta': clean_fasta,
+            'substrate_analogs': substrate_analogs,
+            'catpred_input': catpred_input,
 
             # Main Output & Results directories
             'output_dir': output_dir,
@@ -76,13 +97,42 @@ class Config:
             'geopoc_model': Path(path_config.get('geopoc_model', modeldir / "geopoc")),
             'gatsol_model': Path(path_config.get('gatsol_model', modeldir / "gatsol")),
             
-            # Logs
-            'log_dir': Path(path_config.get('log_dir', workdir / "logs")),
+            # Logs (accept 'log_dir' or legacy 'logs')
+            'log_dir': Path(path_config.get('log_dir',
+                                         path_config.get('logs', workdir / "logs")) ),
         }
 
-        # Create all directories
-        for path in self.paths.values():
-            if path and not path.suffix:
+        # Create directories based on configured steps
+        steps = self.get('steps', []) or []
+        always_create = {'output_dir', 'results_dir', 'log_dir', 'modeldir'}
+        step_required_dirs = {
+            'input_fasta': ['clean_sequences', 'esmfold', 'esm2',
+                             'remove_sequences_without_pdb', 'prepare_catpred', 'classical_properties'],
+            'clean_fasta': ['clean_sequences', 'remove_sequences_without_pdb',
+                            'prepare_catpred', 'catpred', 'temberture',
+                            'geopoc', 'gatsol', 'classical_properties'],
+            'substrate_analogs': ['prepare_catpred'],
+            'catpred_input': ['prepare_catpred'],
+            'structures': ['esmfold', 'geopoc', 'gatsol'],
+            'embeddings': ['esm2', 'geopoc', 'gatsol'],
+            'temberture_output': ['temberture'],
+            'geopoc_output': ['geopoc'],
+            'gatsol_output': ['gatsol'],
+            'catpred_output': ['catpred'],
+            'classical_properties_results': ['classical_properties'],
+            'temberture_results': ['process_temberture'],
+            'geopoc_results': ['process_geopoc'],
+            'gatsol_results': ['process_gatsol'],
+            'catpred_results': ['process_catpred'],
+            'consolidated_results': ['consolidate_results']
+        }
+        for key, path in self.paths.items():
+            create = False
+            if key in always_create:
+                create = True
+            elif key in step_required_dirs and any(step in steps for step in step_required_dirs[key]):
+                create = True
+            if create and path and not path.suffix:
                 path.mkdir(parents=True, exist_ok=True)
                 if os.geteuid() == 0:
                     os.chmod(path, 0o777)
