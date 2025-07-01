@@ -8,12 +8,13 @@ ProtScout is a Python package that enables ranking of protein sequences based on
 
 ## ✨ Features
 
-- 🧬 Comprehensive protein property prediction
-- 🤖 Integration with multiple AI models 
-- 📊 Flexible ranking system with customizable weights
-- 🚀 Efficient batch processing
-- 📈 Property visualization tools
-- 🔄 Combined prediction support
+- 🧬 Comprehensive protein property analysis (structure, embeddings, catalytic activity, thermal stability, environmental tolerances, solubility, classical properties)
+- 🐳 Containerized execution of prediction tools with Docker
+- 🚀 Modular, parallel workflow with configurable steps and automatic resume
+- 🔄 Automatic retry and resume support for robust execution
+- ✅ Validation and dry-run modes to preview workflow
+- 🔧 Fully configurable via YAML files and environment variable overrides
+- 📈 Detailed logging and resource monitoring
 
 ## 🚀 Installation
 
@@ -34,10 +35,6 @@ cd ProtScout
 # Install Poetry if you haven't already
 pip install poetry
 
-# Copy your existing scripts to the package
-mkdir -p src/protscout/scripts
-cp /path/to/your/scripts/*.py src/protscout/scripts/
-cp /path/to/your/scripts/*.sh src/protscout/scripts/
 
 # Install package and dependencies
 poetry install
@@ -53,10 +50,6 @@ poetry shell
 git clone https://github.com/Robaina/ProtScout.git
 cd ProtScout
 
-# Copy scripts and install
-mkdir -p src/protscout/scripts
-cp /path/to/your/scripts/*.py src/protscout/scripts/
-cp /path/to/your/scripts/*.sh src/protscout/scripts/
 
 # Install in development mode
 pip install -e .
@@ -77,6 +70,11 @@ condition: ultra
 workdir: /path/to/your/workdir
 modeldir: /path/to/model/weights
 python_executable: /path/to/conda/env/bin/python
+memory: 100g
+workers: 2
+quiet: true
+max_retries: 2
+preserve_artifacts: false
 ```
 
 Validate your setup:
@@ -135,28 +133,47 @@ ProtScout uses YAML configuration files for workflow management. Key configurati
 # Analysis condition
 condition: ultra
 
-# Directory paths
-workdir: /home/ubuntu/lab4/mangrove-plastic-degrading
-modeldir: /home/ubuntu/lab4/model_weights
+# Core directories
+workdir: /path/to/your/workdir
+modeldir: /path/to/model/weights
 
-# Resource allocation
+# Execution settings
+python_executable: /path/to/conda/env/bin/python
 memory: 100g
 workers: 2
 quiet: true
-# preserve_artifacts: false  # clear artifacts directory before each run (set to true to keep previous outputs)
+max_retries: 2
+preserve_artifacts: false
 
-# Container configuration
+# Container images (optional overrides)
 containers:
   esmfold:
     image: ghcr.io/new-atlantis-labs/esmfold:latest
     max_containers: 1
+  # ... other containers: esm2, catpred, temberture, geopoc, gatsol
 
-# Steps to execute
+# GPU and shared memory settings
+resources:
+  gpus: all
+  shm_size: 100g
+
+# Workflow steps
 steps:
   - clean_sequences
   - esmfold
   - esm2
-  # ... more steps
+  - remove_sequences_without_pdb
+  - prepare_catpred
+  - catpred
+  - temberture
+  - geopoc
+  - gatsol
+  - classical_properties
+  - process_temberture
+  - process_geopoc
+  - process_gatsol
+  - process_catpred
+  - consolidate_results
 ```
 
 See `configs/example_workflow.yaml` for a complete example.
@@ -261,7 +278,7 @@ If you use ProtScout in your research, please cite:
 @software{protscout2024,
   author = {Robaina-Estévez, Semidán},
   title = {ProtScout: AI-powered protein sequence ranking},
-  year = {2024},
+  year = {2025},
   url = {https://github.com/Robaina/ProtScout}
 }
 ```
