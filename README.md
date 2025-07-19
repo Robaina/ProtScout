@@ -4,11 +4,11 @@
 
 ## 🎯 About
 
-ProtScout is a Python package that enables ranking of protein sequences based on multiple properties predicted by state-of-the-art AI models. It provides a unified interface to assess and compare proteins using various characteristics such as stability, solubility, and catalytic efficiency.
+ProtScout is a Python package that enables ranking of protein sequences based on multiple properties predicted by state-of-the-art AI models. It provides a unified interface to assess and compare proteins using various characteristics such as stability, solubility, catalytic efficiency, and thermal properties.
 
 ## ✨ Features
 
-- 🧬 Comprehensive protein property analysis (structure, embeddings, catalytic activity, thermal stability, environmental tolerances, solubility, classical properties)
+- 🧬 Comprehensive protein property analysis (structure, embeddings, catalytic activity, kinetic parameters, thermal stability, melting temperature, environmental tolerances, solubility, classical properties)
 - 🐳 Containerized execution of prediction tools with Docker
 - 🚀 Modular, parallel workflow with configurable steps and automatic resume
 - 🔄 Automatic retry and resume support for robust execution
@@ -122,7 +122,7 @@ protscout logs logs/protscout_run_20240112_143022.log -f
 The workflow automatically runs compatible steps in parallel:
 
 - ESMFold and ESM-2 run simultaneously
-- All prediction tools (CatPred, Temberture, GeoPoc, GATSol) run in parallel
+- All prediction tools (CatPred, Catapro, Temberture, Temstapro, GeoPoc, GATSol) run in parallel
 - Result processing steps are parallelized
 
 ## 🔧 Configuration
@@ -150,7 +150,7 @@ containers:
   esmfold:
     image: ghcr.io/new-atlantis-labs/esmfold:latest
     max_containers: 1
-  # ... other containers: esm2, catpred, temberture, geopoc, gatsol
+  # ... other containers: esm2, catpred, catapro, temberture, temstapro, geopoc, gatsol
 
 # GPU and shared memory settings
 resources:
@@ -165,14 +165,18 @@ steps:
   - remove_sequences_without_pdb
   - prepare_catpred
   - catpred
+  - catapro
   - temberture
+  - temstapro
   - geopoc
   - gatsol
   - classical_properties
   - process_temberture
+  - process_temstapro
   - process_geopoc
   - process_gatsol
   - process_catpred
+  - process_catapro
   - consolidate_results
 ```
 
@@ -186,7 +190,9 @@ See `configs/example_workflow.yaml` for a complete example.
 - `remove_sequences_without_pdb` - Filter sequences without structures
 - `prepare_catpred` - Prepare inputs for catalytic prediction
 - `catpred` - Predict catalytic properties
+- `catapro` - Predict kinetic parameters (KM, Kcat, catalytic efficiency)
 - `temberture` - Predict temperature stability
+- `temstapro` - Predict melting temperature
 - `geopoc` - Predict environmental conditions (temp, pH, salt)
 - `gatsol` - Predict solubility
 - `classical_properties` - Calculate classical protein properties
@@ -202,16 +208,20 @@ See `configs/example_workflow.yaml` for a complete example.
 ├── clean_sequences/              # cleaned FASTA files
 ├── catpred_data/                 # prepared inputs for CatPred
 ├── catpred/                      # CatPred raw output
+├── catapro/                      # Catapro kinetic predictions (KM, Kcat, efficiency)
 ├── temberture/                   # temperature stability predictions
+├── temstapro/                    # melting temperature predictions
 ├── geopoc/                       # environmental predictions (temp, pH, salt)
 └── gatsol/                       # solubility predictions
 
 <results_dir>/                    # processed results
 ├── classical_properties_results/ # classical property outputs
 ├── temberture_results/            # processed temperature results
+├── temstapro_results/             # processed melting temperature results
 ├── geopoc_results/                # processed environmental results
 ├── gatsol_results/                # processed solubility results
 ├── catpred_results/               # processed CatPred results
+├── catapro_results/               # processed Catapro kinetic results
 └── consolidated_results/          # final consolidated tables
 ```
 
@@ -290,6 +300,8 @@ ProtScout integrates several state-of-the-art protein prediction tools:
 - ESMFold for structure prediction
 - ESM-2 for sequence embeddings
 - CatPred for catalytic activity prediction
+- Catapro for kinetic parameters (KM, Kcat, catalytic efficiency)
 - Temberture for thermal stability prediction
+- Temstapro for melting temperature prediction
 - GeoPoc for environmental condition prediction
 - GATSol for solubility prediction
