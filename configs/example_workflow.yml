@@ -28,28 +28,28 @@ preserve_artifacts: false  # set true to keep previous artifacts between runs
 # Container configuration
 containers:
   esmfold:
-    image: ghcr.io/new-atlantis-labs/protscout-tools-esmfold:latest
+    image: ghcr.io/robaina/protscout-tools-esmfold:latest
     max_containers: 1
     
   esm2:
-    image: ghcr.io/new-atlantis-labs/protscout-tools-esm2:latest
+    image: ghcr.io/robaina/protscout-tools-esm2:latest
     max_containers: 1
     toks_per_batch: 4096
     model: esm2_t36_3B_UR50D
     include: per_tok
     
   catpred:
-    image: ghcr.io/new-atlantis-labs/protscout-tools-catpred:latest
+    image: ghcr.io/robaina/protscout-tools-catpred:latest
     
   temberture:
-    image: ghcr.io/new-atlantis-labs/protscout-tools-temberture:latest
+    image: ghcr.io/robaina/protscout-tools-temberture:latest
     
   geopoc:
-    image: ghcr.io/new-atlantis-labs/protscout-tools-geopoc:latest
+    image: ghcr.io/robaina/protscout-tools-geopoc:latest
     tasks: "temp,pH,salt"
     
   gatsol:
-    image: ghcr.io/new-atlantis-labs/protscout-tools-gatsol:latest
+    image: ghcr.io/robaina/protscout-tools-gatsol:latest
     batch_size: 32
     feature_batch: 4
     timeout: 600

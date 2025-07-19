@@ -2,7 +2,7 @@
 """
 Consolidate protein sequence results from multiple tools into single TSV files per protein group.
 
-This script takes results from multiple tools (catpred, gatsol, geopoc, temberture, etc.)
+This script takes results from multiple tools (catpred, catapro, gatsol, geopoc, temberture, temstapro, etc.)
 and consolidates them into a single TSV file per protein group, preserving the sequence_id
 and all calculated properties from each tool.
 """
@@ -12,6 +12,7 @@ import argparse
 import pandas as pd
 from pathlib import Path
 import logging
+import numpy as np
 
 # Set up logging
 logging.basicConfig(
@@ -37,13 +38,13 @@ def parse_arguments():
     )
     parser.add_argument(
         '--tools',
-        default=['catpred', 'gatsol', 'geopoc', 'temberture', 'classical_properties'],
+        default=['catpred', 'catapro', 'gatsol', 'geopoc', 'temberture', 'temstapro', 'classical_properties'],
         nargs='+',
-        help="Tool names to consolidate (default: catpred gatsol geopoc temberture classical_properties)"
+        help="Tool names to consolidate (default: catpred catapro gatsol geopoc temberture temstapro classical_properties)"
     )
     parser.add_argument(
         '--sort',
-        help="Column name to sort by (e.g., 'TM')"
+        help="Column name to sort by (e.g., 'TM', 'thermostability_score')"
     )
     parser.add_argument(
         '--ascending',
@@ -115,6 +116,107 @@ def read_tool_results(input_dir, tool, protein_group):
         logger.error(f"Error reading {filepath}: {str(e)}")
         return None
 
+def standardize_column_names(df, tool):
+    """
+    Standardize column names from different tools for consistency.
+    
+    Args:
+        df: DataFrame with tool results
+        tool: Tool name
+        
+    Returns:
+        DataFrame with standardized column names
+    """
+    # Define column mappings for each tool
+    column_mappings = {
+        'catpred': {
+            "Prediction_(s^(-1))": "kcat_(s^(-1))",
+            "Prediction_(mM)": "KM_(mM)"
+        },
+        'catapro': {
+            "pred_log10_kcat": "log10_kcat_(s^(-1))",
+            "pred_log10_Km": "log10_KM_(mM)", 
+            "pred_log10_kcat_Km": "log10_catalytic_efficiency_(M^(-1)s^(-1))"
+        },
+        'temstapro': {
+            "thermostability_score": "thermostability_score_(°C)"
+        },
+        'temberture': {
+            # TM column should already be correctly named
+        },
+        'geopoc': {
+            # Should have temperature, pH, salt columns
+        },
+        'gatsol': {
+            # Should have solubility column
+        },
+        'classical_properties': {
+            # Should have various classical property columns
+        }
+    }
+    
+    if tool in column_mappings:
+        df = df.rename(columns=column_mappings[tool])
+    
+    return df
+
+def calculate_derived_properties(df):
+    """
+    Calculate derived properties from available data.
+    
+    Args:
+        df: DataFrame with consolidated results
+        
+    Returns:
+        DataFrame with additional derived properties
+    """
+    # Calculate linear kcat and KM from CataPro log10 values
+    if "log10_kcat_(s^(-1))" in df.columns:
+        df["kcat_catapro_(s^(-1))"] = 10 ** df["log10_kcat_(s^(-1))"]
+        logger.info("  Calculated linear kcat from CataPro log10 values")
+        
+    if "log10_KM_(mM)" in df.columns:
+        df["KM_catapro_(mM)"] = 10 ** df["log10_KM_(mM)"]
+        logger.info("  Calculated linear KM from CataPro log10 values")
+
+    # Calculate catalytic efficiency from CatPred if both kcat and KM columns exist
+    if "kcat_(s^(-1))" in df.columns and "KM_(mM)" in df.columns:
+        # Convert KM from mM to M and calculate catalytic efficiency (kcat/KM)
+        df["catalytic_efficiency_catpred_(M^(-1)s^(-1))"] = df["kcat_(s^(-1))"] / (df["KM_(mM)"] * 0.001)
+        logger.info("  Calculated CatPred catalytic efficiency (kcat/KM in M^-1s^-1)")
+    
+    # Calculate catalytic efficiency from CataPro derived values
+    if "kcat_catapro_(s^(-1))" in df.columns and "KM_catapro_(mM)" in df.columns:
+        # Convert KM from mM to M and calculate catalytic efficiency (kcat/KM)
+        df["catalytic_efficiency_catapro_(M^(-1)s^(-1))"] = df["kcat_catapro_(s^(-1))"] / (df["KM_catapro_(mM)"] * 0.001)
+        logger.info("  Calculated CataPro catalytic efficiency (kcat/KM in M^-1s^-1)")
+    
+    return df
+
+def remove_unwanted_columns(df):
+    """
+    Remove unwanted columns from the final output.
+    
+    Args:
+        df: DataFrame with all columns
+        
+    Returns:
+        DataFrame with unwanted columns removed
+    """
+    # Remove log10 columns as we only want linear values
+    log10_columns = [col for col in df.columns if 'log10_' in col]
+    
+    # Remove the 'sequence' column if present
+    unwanted_columns = log10_columns + ['sequence']
+    
+    columns_to_remove = [col for col in unwanted_columns if col in df.columns]
+    
+    if columns_to_remove:
+        df = df.drop(columns=columns_to_remove)
+        logger.info(f"  Removed columns: {', '.join(columns_to_remove)}")
+    
+    return df
+
 def consolidate_results(input_dir, output_dir, tools, protein_groups, sort_column=None, ascending=False):
     """
     Consolidate results from all tools for each protein group.
@@ -139,6 +241,9 @@ def consolidate_results(input_dir, output_dir, tools, protein_groups, sort_colum
                 continue
 
             tools_found.append(tool)
+            
+            # Standardize column names
+            df = standardize_column_names(df, tool)
 
             if merged_df is None:
                 merged_df = df
@@ -159,17 +264,11 @@ def consolidate_results(input_dir, output_dir, tools, protein_groups, sort_colum
 
         logger.info(f"  Merged data from tools: {', '.join(tools_found)}")
 
-        # Rename specific columns for clarity
-        column_renames = {
-            "Prediction_(s^(-1))": "kcat_(s^(-1))",
-            "Prediction_(mM)": "KM_(mM)"
-        }
-        merged_df = merged_df.rename(columns=column_renames)
+        # Calculate derived properties
+        merged_df = calculate_derived_properties(merged_df)
 
-        # Calculate catalytic efficiency if both kcat and KM columns exist
-        if "kcat_(s^(-1))" in merged_df.columns and "KM_(mM)" in merged_df.columns:
-            merged_df["catalytic_efficiency_(M^(-1)s^(-1))"] = merged_df["kcat_(s^(-1))"] / (merged_df["KM_(mM)"] * 0.001)
-            logger.info("  Added catalytic efficiency column (kcat/KM in M^-1s^-1)")
+        # Remove unwanted columns (log10 values and sequence column)
+        merged_df = remove_unwanted_columns(merged_df)
 
         # Sort if requested before reordering columns
         if sort_column and sort_column in merged_df.columns:
@@ -190,18 +289,23 @@ def consolidate_results(input_dir, output_dir, tools, protein_groups, sort_colum
             'instability_index', 'avg_flexibility',
             'extinction_coefficient_reduced', 'extinction_coefficient_oxidized',
             'n_complete', 'c_complete',
-            # Key predictions
-            'kcat_(s^(-1))', 'KM_(mM)', 'catalytic_efficiency_(M^(-1)s^(-1))', 'TM',
+            # CatPred predictions (linear values only)
+            'kcat_(s^(-1))', 'KM_(mM)', 'catalytic_efficiency_catpred_(M^(-1)s^(-1))',
+            # CataPro predictions (linear values only)
+            'kcat_catapro_(s^(-1))', 'KM_catapro_(mM)', 'catalytic_efficiency_catapro_(M^(-1)s^(-1))',
+            # Thermostability predictions
+            'TM', 'thermostability_score_(°C)',
+            # Environmental predictions
             'solubility', 'pH', 'salt', 'temperature'
         ]
         
         # Build the final column list
         final_cols = [col for col in col_order if col in all_cols]
-        remaining_cols = [col for col in all_cols if col not in final_cols and col != 'sequence']
+        remaining_cols = [col for col in all_cols if col not in final_cols]
         final_cols.extend(remaining_cols)
 
         merged_df = merged_df[final_cols]
-        logger.info("  Reordered columns for better readability and removed 'sequence' column.")
+        logger.info("  Reordered columns for better readability")
 
         # Save consolidated results
         output_filepath = os.path.join(output_dir, f"{protein_group}.tsv")

@@ -1,0 +1,336 @@
+#!/bin/bash
+
+# Default values
+DOCKER_IMAGE="ghcr.io/robaina/catapro:latest"
+PROCESSED_FILE="processed_files.txt"
+GPU_ENABLED=true
+QUIET=false
+CONTAINER_NAME="catapro"
+MAX_CONTAINERS=4  # Default maximum parallel containers
+SHM_SIZE=""  # Empty by default
+GPUS_VALUE="all"  # Default to all GPUs
+BATCH_SIZE=64  # Default batch size for CataPro
+DEVICE="cuda:0"  # Default device
+
+# Help function
+function show_help {
+    echo "Usage: $0 [options]"
+    echo "Options:"
+    echo "  -i, --input DIR       Input directory containing catapro input files (required)"
+    echo "  -o, --output DIR      Output directory for results (required)"
+    echo "  -m, --model DIR       Model/weights directory (required)"
+    echo "  -f, --file FILE       Input processed files list (default: ${PROCESSED_FILE})"
+    echo "  -g, --gpu BOOL        Enable GPU usage (default: true)"
+    echo "  -q, --quiet           Suppress output messages"
+    echo "  -p, --parallel N      Maximum number of parallel containers (default: ${MAX_CONTAINERS})"
+    echo "  -d, --docker-image IMG Docker image to use (default: ${DOCKER_IMAGE})"
+    echo "  -S, --shm-size SIZE    Shared memory size for containers (e.g., 8g)"
+    echo "  -G, --gpus VALUE       GPUs to use for Docker (default: all)"
+    echo "  -b, --batch-size N     Batch size for predictions (default: ${BATCH_SIZE})"
+    echo "  -D, --device DEV       Device to use (default: ${DEVICE})"
+    echo "  -h, --help            Show this help message"
+    exit 1
+}
+
+# Function to count running CataPro containers
+count_containers() {
+    docker ps --format '{{.Names}}' | grep -c "^${CONTAINER_NAME}_" || true
+}
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -i|--input)
+            INPUT_DIR="$2"
+            shift 2
+            ;;
+        -o|--output)
+            OUTPUT_DIR="$2"
+            shift 2
+            ;;
+        -m|--model)
+            MODEL_DIR="$2"
+            shift 2
+            ;;
+        -f|--file)
+            PROCESSED_FILE="$2"
+            shift 2
+            ;;
+        -g|--gpu)
+            if [[ "$2" == "false" || "$2" == "0" ]]; then
+                GPU_ENABLED=false
+                DEVICE="cpu"
+            else
+                GPU_ENABLED=true
+            fi
+            shift 2
+            ;;
+        -q|--quiet)
+            QUIET=true
+            shift
+            ;;
+        -p|--parallel)
+            MAX_CONTAINERS="$2"
+            shift 2
+            ;;
+        -d|--docker-image)
+            DOCKER_IMAGE="$2"
+            shift 2
+            ;;
+        -S|--shm-size)
+            SHM_SIZE="$2"
+            shift 2
+            ;;
+        -G|--gpus)
+            GPUS_VALUE="$2"
+            shift 2
+            ;;
+        -b|--batch-size)
+            BATCH_SIZE="$2"
+            shift 2
+            ;;
+        -D|--device)
+            DEVICE="$2"
+            shift 2
+            ;;
+        -h|--help)
+            show_help
+            ;;
+        *)
+            echo "Unknown option: $1"
+            show_help
+            ;;
+    esac
+done
+
+# Validate required parameters
+if [ -z "${INPUT_DIR}" ] || [ -z "${OUTPUT_DIR}" ] || [ -z "${MODEL_DIR}" ]; then
+    echo "Error: Missing required parameters"
+    show_help
+fi
+
+# Validate input directory exists
+if [ ! -d "${INPUT_DIR}" ]; then
+    echo "Error: Input directory ${INPUT_DIR} does not exist"
+    exit 1
+fi
+
+# Validate processed files list exists
+if [ ! -f "${INPUT_DIR}/${PROCESSED_FILE}" ]; then
+    echo "Error: Processed files list ${INPUT_DIR}/${PROCESSED_FILE} does not exist"
+    exit 1
+fi
+
+# Validate model directory exists
+if [ ! -d "${MODEL_DIR}" ]; then
+    echo "Error: Model directory ${MODEL_DIR} does not exist"
+    exit 1
+fi
+
+# Create output directory if it doesn't exist
+mkdir -p "${OUTPUT_DIR}"
+
+# Display configuration
+echo "====== CataPro Analysis Configuration ======"
+echo "  Input: ${INPUT_DIR}"
+echo "  Output: ${OUTPUT_DIR}"
+echo "  Model: ${MODEL_DIR}"
+echo "  Processed files list: ${PROCESSED_FILE}"
+echo "GPU enabled: ${GPU_ENABLED}"
+echo "Quiet mode: ${QUIET}"
+echo "Docker image: ${DOCKER_IMAGE}"
+echo "Maximum parallel containers: ${MAX_CONTAINERS}"
+echo "Docker GPUs: ${GPUS_VALUE}"
+echo "Shared Memory Size: ${SHM_SIZE:-"default"}"
+echo "Batch size: ${BATCH_SIZE}"
+echo "Device: ${DEVICE}"
+echo "=========================================="
+
+# Create arrays to store job information
+declare -a JOB_IDS
+declare -a OUTPUT_DIRS
+
+# Count total runs for progress tracking
+TOTAL_JOBS=0
+CURRENT_JOB=0
+
+# First, count the number of jobs (skip header line)
+LINE_NUM=0
+while IFS=$'\t' read -r protein_group_id catapro_input_file original_fasta_file; do
+    LINE_NUM=$((LINE_NUM + 1))
+    # Skip header line
+    if [ $LINE_NUM -eq 1 ]; then
+        if [[ "$protein_group_id" == "result_directory" || "$protein_group_id" == "protein_group_id" ]]; then
+            continue
+        fi
+    fi
+    # One job per protein group for CataPro
+    TOTAL_JOBS=$((TOTAL_JOBS + 1))
+done < "${INPUT_DIR}/${PROCESSED_FILE}"
+
+if [ "$QUIET" = false ]; then
+    echo "Starting CataPro analysis on ${TOTAL_JOBS} total jobs..."
+fi
+
+# Process each protein group
+LINE_NUM=0
+while IFS=$'\t' read -r protein_group_id catapro_input_file original_fasta_file; do
+    LINE_NUM=$((LINE_NUM + 1))
+    
+    # Skip header line
+    if [ $LINE_NUM -eq 1 ]; then
+        if [[ "$protein_group_id" == "result_directory" || "$protein_group_id" == "protein_group_id" ]]; then
+            if [ "$QUIET" = false ]; then
+                echo "Skipping header line..."
+            fi
+            continue
+        fi
+    fi
+    
+    # Skip empty lines
+    if [ -z "$protein_group_id" ]; then
+        continue
+    fi
+    
+    if [ "$QUIET" = false ]; then
+        echo "Processing ${protein_group_id}..."
+    fi
+    
+    # Verify input file exists
+    EXPECTED_INPUT="${INPUT_DIR}/${protein_group_id}/input.csv"
+    if [ ! -f "${EXPECTED_INPUT}" ]; then
+        echo "Warning: Input file not found for ${protein_group_id}: ${EXPECTED_INPUT}"
+        echo "Skipping ${protein_group_id}..."
+        continue
+    fi
+    
+    # Create protein-group-specific output directory
+    PROTEIN_GROUP_OUTPUT_DIR="${OUTPUT_DIR}/${protein_group_id}"
+    mkdir -p "${PROTEIN_GROUP_OUTPUT_DIR}"
+    
+    # Process with CataPro
+    CURRENT_JOB=$((CURRENT_JOB + 1))
+    # Generate a unique container name for this job
+    CONTAINER_ID="${CONTAINER_NAME}_${protein_group_id}_$(date +%s%N | md5sum | head -c 8)"
+    
+    # Wait until we have room to run another container
+    while [ "$(count_containers)" -ge "$MAX_CONTAINERS" ]; do
+        if [ "$QUIET" = false ]; then
+            echo "Currently at max containers ($MAX_CONTAINERS). Waiting..."
+        fi
+        sleep 5
+    done
+    
+    if [ "$QUIET" = false ]; then
+        echo "[${CURRENT_JOB}/${TOTAL_JOBS}] Running CataPro for ${protein_group_id} (Container: ${CONTAINER_ID})..."
+    fi
+    
+    # Build docker command parts
+    DOCKER_GPU_FLAG=""
+    if [ "$GPU_ENABLED" = true ]; then
+        DOCKER_GPU_FLAG="--gpus ${GPUS_VALUE}"
+    fi
+    
+    DOCKER_SHM_FLAG=""
+    if [ -n "${SHM_SIZE}" ]; then
+        DOCKER_SHM_FLAG="--shm-size=${SHM_SIZE}"
+    fi
+    
+    # Run CataPro container in background
+    if [ "$QUIET" = true ]; then
+        docker run --name "${CONTAINER_ID}" --rm ${DOCKER_GPU_FLAG} ${DOCKER_SHM_FLAG} \
+            -v "${INPUT_DIR}":/app/input:ro \
+            -v "${PROTEIN_GROUP_OUTPUT_DIR}":/app/output:rw \
+            -v "${MODEL_DIR}":/app/models:ro \
+            ${DOCKER_IMAGE} \
+            -inp_fpath "/app/input/${protein_group_id}/input.csv" \
+            -model_dpath /app/models \
+            -batch_size ${BATCH_SIZE} \
+            -device ${DEVICE} \
+            -out_fpath "/app/output/catapro_prediction.csv" > /dev/null 2>&1 &
+    else
+        docker run --name "${CONTAINER_ID}" --rm ${DOCKER_GPU_FLAG} ${DOCKER_SHM_FLAG} \
+            -v "${INPUT_DIR}":/app/input:ro \
+            -v "${PROTEIN_GROUP_OUTPUT_DIR}":/app/output:rw \
+            -v "${MODEL_DIR}":/app/models:ro \
+            ${DOCKER_IMAGE} \
+            -inp_fpath "/app/input/${protein_group_id}/input.csv" \
+            -model_dpath /app/models \
+            -batch_size ${BATCH_SIZE} \
+            -device ${DEVICE} \
+            -out_fpath "/app/output/catapro_prediction.csv" &
+    fi
+    
+    # Add container ID and output directory to the job lists
+    JOB_IDS+=("$CONTAINER_ID")
+    OUTPUT_DIRS+=("${PROTEIN_GROUP_OUTPUT_DIR}")
+    
+    # Sleep a bit to let Docker register the container
+    sleep 1
+    
+    if [ "$QUIET" = false ]; then
+        echo "Started Docker container for ${protein_group_id} (running: $(count_containers)/${MAX_CONTAINERS})"
+    fi
+    
+done < "${INPUT_DIR}/${PROCESSED_FILE}"
+
+# Wait for all containers to finish
+if [ "$QUIET" = false ]; then
+    echo "All jobs started, waiting for containers to finish..."
+fi
+
+while [ "$(count_containers)" -gt 0 ]; do
+    RUNNING=$(count_containers)
+    if [ "$QUIET" = false ]; then
+        echo "Waiting for ${RUNNING} container(s) to finish..."
+    fi
+    sleep 10
+done
+
+# Check results by examining output files instead of container exit codes
+if [ "$QUIET" = false ]; then
+    echo "All containers have finished. Checking results..."
+fi
+
+SUCCESS=0
+FAILURE=0
+
+# Loop through each job and check if the output file exists
+for i in "${!JOB_IDS[@]}"; do
+    CONTAINER_ID="${JOB_IDS[$i]}"
+    OUTPUT_DIR="${OUTPUT_DIRS[$i]}"
+
+    # Look for catapro_prediction.csv in the output directory
+    OUTPUT_FILE="${OUTPUT_DIR}/catapro_prediction.csv"
+    if [ -f "${OUTPUT_FILE}" ]; then
+        SUCCESS=$((SUCCESS + 1))
+        if [ "$QUIET" = false ]; then
+            echo "Job ${CONTAINER_ID} completed successfully: $(basename "$OUTPUT_FILE")"
+        fi
+    else
+        # No output file, job failed
+        FAILURE=$((FAILURE + 1))
+        if [ "$QUIET" = false ]; then
+            echo "Error: Job ${CONTAINER_ID} failed: no catapro_prediction.csv in ${OUTPUT_DIR}"
+        fi
+    fi
+done
+
+# Print summary
+if [ "$QUIET" = false ]; then
+    echo "==== CataPro Analysis Complete ===="
+    echo "Total jobs: ${TOTAL_JOBS}"
+    echo "Successful: ${SUCCESS}"
+    echo "Failed: ${FAILURE}"
+    echo "Results are available in: ${OUTPUT_DIR}"
+    
+    if [ ${FAILURE} -gt 0 ]; then
+        echo "Warning: ${FAILURE} job(s) failed"
+    else
+        echo "All jobs completed successfully!"
+    fi
+fi
+
+if [ ${FAILURE} -gt 0 ]; then
+    exit 1
+fi

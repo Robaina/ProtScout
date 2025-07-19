@@ -31,9 +31,16 @@ class ProtScoutWorkflow:
         self.resume = resume
         self.logger = self._setup_logging()
         self.scripts_dir = Path(__file__).parent / "scripts"
+        
+        # Debug configuration loading
+        self._debug_config()
+        
+        # Dynamic path resolution - this is the key fix!
+        self._setup_dynamic_paths()
+        
         self.step_commands = self._define_steps()
         self.results = {}
-        self.state_file = config.paths['output_dir'] / '.workflow_state.json'
+        self.state_file = self._get_safe_path('output_dir') / '.workflow_state.json'
         self.start_time = None
         self._interrupted = False
         
@@ -43,10 +50,166 @@ class ProtScoutWorkflow:
         
         # Check prerequisites
         self._check_prerequisites()
-        # Clear artifacts (raw outputs) directory before run unless preserving or resuming
+        
+        # Clear artifacts directory if needed
+        self._handle_artifacts_cleanup()
+        
+        # Load previous state if resuming
+        if resume:
+            self._load_state()
+    
+    def _debug_config(self):
+        """Debug configuration loading"""
+        self.logger.info("=== Configuration Debug ===")
+        self.logger.info(f"Config type: {type(self.config)}")
+        
+        if hasattr(self.config, 'paths'):
+            self.logger.info(f"Config has paths attribute: True")
+            if hasattr(self.config.paths, 'keys'):
+                self.logger.info(f"Available path keys: {list(self.config.paths.keys())}")
+            else:
+                self.logger.info(f"Paths content: {self.config.paths}")
+        else:
+            self.logger.error("Config does not have paths attribute!")
+    
+    def _setup_dynamic_paths(self):
+        """Setup dynamic path resolution to handle any tool names"""
+        self.logger.info("Setting up dynamic path resolution...")
+        
+        # Create a dynamic path resolver that maps tool names
+        self.path_resolver = {}
+        
+        # Get all available paths from config
+        available_paths = set()
+        if hasattr(self.config, 'paths'):
+            if hasattr(self.config.paths, 'keys'):
+                available_paths.update(self.config.paths.keys())
+            elif isinstance(self.config.paths, dict):
+                available_paths.update(self.config.paths.keys())
+        
+        # Get steps to understand what tools are being used
+        steps = self.config.get('steps', [])
+        
+        # Build tool name mappings (no automatic cross-tool mapping)
+        tool_mappings = {}
+        for step in steps:
+            if step.startswith('prepare_'):
+                tool_name = step.replace('prepare_', '')
+                tool_mappings[tool_name] = tool_name
+            elif step.startswith('process_'):
+                tool_name = step.replace('process_', '')
+                tool_mappings[tool_name] = tool_name
+            elif step not in ['clean_sequences', 'consolidate_results']:
+                tool_mappings[step] = step
+        
+        self.tool_mappings = tool_mappings
+        self.logger.info(f"Tool mappings: {tool_mappings}")
+        self.logger.info(f"Available paths: {sorted(available_paths)}")
+        
+        for tool in tool_mappings:
+            tool_paths = [p for p in available_paths if p.startswith(f"{tool}_")]
+            if not tool_paths:
+                self.logger.warning(f"No paths configured for tool '{tool}'. Steps using this tool may fail or use default paths.")
+    
+    def _get_safe_path(self, path_key: str) -> Optional[Path]:
+        """Safely get a path with dynamic tool name resolution"""
+        # First try direct access
+        path = self._try_direct_path_access(path_key)
+        if path:
+            return path
+        
+        # Try tool name mapping
+        for prefix in ['_input', '_output', '_results', '_model']:
+            if path_key.endswith(prefix):
+                tool_name = path_key.replace(prefix, '')
+                if tool_name in self.tool_mappings:
+                    mapped_tool = self.tool_mappings[tool_name]
+                    mapped_path_key = f"{mapped_tool}{prefix}"
+                    path = self._try_direct_path_access(mapped_path_key)
+                    if path:
+                        self.logger.info(f"Mapped {path_key} -> {mapped_path_key}")
+                        return path
+        
+        # Try using config's get_path method if available
+        if hasattr(self.config, 'get_path'):
+            try:
+                path = self.config.get_path(path_key)
+                if path:
+                    return Path(path) if isinstance(path, str) else path
+            except Exception as e:
+                self.logger.debug(f"Config.get_path failed for {path_key}: {e}")
+        
+        # Generate intelligent default
+        return self._generate_default_path(path_key)
+    
+    def _try_direct_path_access(self, path_key: str) -> Optional[Path]:
+        """Try multiple methods to access a path directly"""
+        try:
+            # Method 1: config.paths attribute access
+            if hasattr(self.config, 'paths'):
+                if hasattr(self.config.paths, path_key):
+                    value = getattr(self.config.paths, path_key)
+                    return Path(value) if value else None
+                elif hasattr(self.config.paths, 'get'):
+                    value = self.config.paths.get(path_key)
+                    return Path(value) if value else None
+                elif isinstance(self.config.paths, dict) and path_key in self.config.paths:
+                    value = self.config.paths[path_key]
+                    return Path(value) if value else None
+            
+            # Method 2: config dict access
+            if isinstance(self.config, dict) and 'paths' in self.config:
+                if path_key in self.config['paths']:
+                    value = self.config['paths'][path_key]
+                    return Path(value) if value else None
+            
+            # Method 3: direct config attribute
+            if hasattr(self.config, path_key):
+                value = getattr(self.config, path_key)
+                return Path(value) if value else None
+                
+        except Exception as e:
+            self.logger.debug(f"Direct path access failed for {path_key}: {e}")
+        
+        return None
+    
+    def _generate_default_path(self, path_key: str) -> Path:
+        """Generate intelligent default path when not found in config"""
+        # Get base directories
+        output_dir = self._try_direct_path_access('output_dir') or Path.cwd() / 'artifacts'
+        results_dir = self._try_direct_path_access('results_dir') or Path.cwd() / 'results'
+        modeldir = self._try_direct_path_access('modeldir') or Path.cwd() / 'models'
+        
+        # Generate based on patterns
+        if path_key.endswith('_input'):
+            tool_name = path_key.replace('_input', '')
+            path = output_dir / f"{tool_name}_data"
+        elif path_key.endswith('_output'):
+            tool_name = path_key.replace('_output', '')
+            path = output_dir / tool_name
+        elif path_key.endswith('_results'):
+            path = results_dir / path_key
+        elif path_key.endswith('_model'):
+            tool_name = path_key.replace('_model', '')
+            path = modeldir / tool_name
+        elif path_key in ['structures', 'embeddings', 'clean_fasta']:
+            path = output_dir / path_key
+        elif path_key in ['output_dir']:
+            path = output_dir
+        elif path_key in ['results_dir']:
+            path = results_dir
+        else:
+            path = output_dir / path_key
+        
+        self.logger.info(f"Generated default path for {path_key}: {path}")
+        return path
+    
+    def _handle_artifacts_cleanup(self):
+        """Handle artifacts directory cleanup"""
         preserve = self.config.get('preserve_artifacts', False)
-        artifacts_dir = self.config.paths['output_dir']
-        if not resume and not preserve and artifacts_dir.exists():
+        artifacts_dir = self._get_safe_path('output_dir')
+        
+        if not self.resume and not preserve and artifacts_dir and artifacts_dir.exists():
             for item in artifacts_dir.iterdir():
                 try:
                     if item.is_dir():
@@ -56,9 +219,6 @@ class ProtScoutWorkflow:
                 except Exception:
                     self.logger.warning(f"Could not remove artifact: {item}")
             self.logger.info(f"Cleared artifacts directory: {artifacts_dir}")
-        # Load previous state if resuming
-        if resume:
-            self._load_state()
     
     def _signal_handler(self, signum, frame):
         """Handle interrupt signals gracefully"""
@@ -82,16 +242,30 @@ class ProtScoutWorkflow:
         console.setFormatter(console_format)
         
         # File handler
-        file_handler = logging.FileHandler(self.config.log_file)
-        file_handler.setLevel(logging.DEBUG)
-        file_format = logging.Formatter(
-            '%(asctime)s | %(name)s | %(levelname)s | %(message)s'
-        )
-        file_handler.setFormatter(file_format)
+        log_file = None
+        if hasattr(self.config, 'log_file'):
+            log_file = self.config.log_file
+        else:
+            log_dir = self._try_direct_path_access('log_dir')
+            if log_dir:
+                log_file = log_dir / 'protscout.log'
+            else:
+                log_file = Path.cwd() / 'protscout.log'
+        
+        if log_file:
+            try:
+                Path(log_file).parent.mkdir(parents=True, exist_ok=True)
+                file_handler = logging.FileHandler(log_file)
+                file_handler.setLevel(logging.DEBUG)
+                file_format = logging.Formatter(
+                    '%(asctime)s | %(name)s | %(levelname)s | %(message)s'
+                )
+                file_handler.setFormatter(file_format)
+                logger.addHandler(file_handler)
+            except Exception as e:
+                print(f"Warning: Could not setup file logging to {log_file}: {e}")
         
         logger.addHandler(console)
-        logger.addHandler(file_handler)
-        
         return logger
     
     def _check_prerequisites(self):
@@ -102,7 +276,7 @@ class ProtScoutWorkflow:
         if not check_docker_running():
             raise RuntimeError("Docker is not running. Please start Docker daemon.")
         
-        # Check GPU availability if needed
+        # Check GPU availability
         gpu_info = get_gpu_info()
         if gpu_info:
             self.logger.info(f"GPU available: {gpu_info}")
@@ -110,230 +284,163 @@ class ProtScoutWorkflow:
             self.logger.warning("No GPU detected. Some steps may run slower.")
         
         # Check disk space
-        output_path = self.config.paths['output_dir']
-        free_space = psutil.disk_usage(output_path).free / (1024**3)  # GB
-        if free_space < 50:
-            self.logger.warning(f"Low disk space: {free_space:.1f} GB free")
+        output_path = self._get_safe_path('output_dir') or Path.cwd()
+        try:
+            free_space = psutil.disk_usage(output_path).free / (1024**3)
+            if free_space < 50:
+                self.logger.warning(f"Low disk space: {free_space:.1f} GB free")
+        except Exception as e:
+            self.logger.warning(f"Could not check disk space: {e}")
     
     def _define_steps(self) -> Dict[str, List[str]]:
-        """Define command mappings for each step"""
-        paths = self.config.paths
+        """Define command mappings for each step with dynamic path resolution"""
         containers = self.config.get('containers', {})
         resources = self.config.get('resources', {})
         
-        # Python executable (handle conda environment)
+        # Python executable
         python_exe = self.config.get('python_executable', 'python')
+        
+        # Helper function to safely get paths for commands
+        def safe_path_str(path_key: str, default: str = "") -> str:
+            path = self._get_safe_path(path_key)
+            return str(path) if path else default
         
         steps = {
             'clean_sequences': [
-                python_exe, str(self.scripts_dir / 'clean_sequences.py'),
-                '--input_dir', str(paths['input_fasta']),
-                '--output_dir', str(paths['clean_fasta']),
+                python_exe, str(self.scripts_dir / 'preprocess/clean_sequences.py'),
+                '--input_dir', safe_path_str('input_fasta'),
+                '--output_dir', safe_path_str('clean_fasta'),
                 '--remove_duplicates',
                 '--prefix', ''
             ],
             
-            'esmfold': [
-                'sudo', 'bash', str(self.scripts_dir / 'run_esmfold.sh'),
-                '--input', str(paths['clean_fasta']),
-                '--output', str(paths['structures']),
-                '--docker-image', containers.get('esmfold', {}).get('image', 'ghcr.io/new-atlantis-labs/esmfold:latest'),
-                '--max-containers', str(containers.get('esmfold', {}).get('max_containers', 1)),
-                '--memory', self.config.get('memory', '100g')
-            ],
-            
-            'esm2': [
-                'sudo', 'bash', str(self.scripts_dir / 'run_esm2.sh'),
-                '--input', str(paths['clean_fasta']),
-                '--output', str(paths['embeddings']),
-                '--docker-image', containers.get('esm2', {}).get('image', 'ghcr.io/new-atlantis-labs/esm2:latest'),
-                '--include', 'per_tok',
-                '--model', 'esm2_t36_3B_UR50D',
-                '--weights', str(paths['modeldir']),
-                '--max-containers', str(containers.get('esm2', {}).get('max_containers', 1)),
-                '--toks_per_batch', str(containers.get('esm2', {}).get('toks_per_batch', 4096)),
-                '--memory', self.config.get('memory', '100g')
-            ],
-            
-            'remove_sequences_without_pdb': [
-                python_exe, str(self.scripts_dir / 'remove_sequences_without_pdb.py'),
-                '--faa_dir', str(paths['clean_fasta']),
-                '--pdb_dir', str(paths['structures']),
-                '--output_dir', str(paths['clean_fasta'])
-            ],
-            
             'prepare_catpred': [
-                python_exe, str(self.scripts_dir / 'prepare_catpred_inputs.py'),
-                '--fasta_dir', str(paths['clean_fasta']),
-                '--substrate_tsv', str(paths['substrate_analogs']),
-                '--output_dir', str(paths['catpred_input']),
-                '--substrate_id', self.config.get('substrate_id', None)
+                python_exe, str(self.scripts_dir / 'catpred/prepare_catpred_inputs.py'),
+                '--fasta_dir', safe_path_str('clean_fasta'),
+                '--substrate_tsv', safe_path_str('substrate_analogs'),
+                '--output_dir', safe_path_str('catpred_input'),
+                '--substrate_id', self.config.get('substrate_id', '') or ''
+            ],
+            
+            'prepare_catapro': [
+                python_exe, str(self.scripts_dir / 'catapro/prepare_catapro_inputs.py'),
+                '--fasta_dir', safe_path_str('clean_fasta'),
+                '--substrate_tsv', safe_path_str('substrate_analogs'),
+                '--output_dir', safe_path_str('catapro_input'),
+                '--substrate_id', self.config.get('substrate_id', '') or ''
             ],
             
             'catpred': [
-                'sudo', 'bash', str(self.scripts_dir / 'run_catpred.sh'),
-                '--input', str(paths['catpred_input']),
-                '--output', str(paths['catpred_output']),
-                '--model', str(paths['modeldir']),
+                'sudo', 'bash', str(self.scripts_dir / 'catpred/run_catpred.sh'),
+                '--input', safe_path_str('catpred_input'),
+                '--output', safe_path_str('catpred_output'),
+                '--model', safe_path_str('catpred_model', str(self._get_safe_path('modeldir') / 'catpred')),
                 '--parallel', str(self.config.get('workers', 2)),
-                '--docker-image', containers.get('catpred', {}).get('image', 'ghcr.io/new-atlantis-labs/catpred:latest'),
+                '--docker-image', containers.get('catpred', {}).get('image', 'ghcr.io/robaina/catpred:latest'),
                 '--gpus', resources.get('gpus', 'all'),
                 '--shm-size', resources.get('shm_size', '100g')
             ],
             
-            'temberture': [
-                'sudo', 'bash', str(self.scripts_dir / 'run_temberture.sh'),
-                '--input', str(paths['clean_fasta']),
-                '--output', str(paths['temberture_output']),
+            'catapro': [
+                'sudo', 'bash', str(self.scripts_dir / 'catapro/run_catapro.sh'),
+                '--input', safe_path_str('catapro_input'),
+                '--output', safe_path_str('catapro_output'),
+                '--model', safe_path_str('catapro_model', str(self._get_safe_path('modeldir') / 'catapro')),
                 '--parallel', str(self.config.get('workers', 2)),
-                '--docker-image', containers.get('temberture', {}).get('image', 'ghcr.io/new-atlantis-labs/temberture:latest'),
+                '--docker-image', containers.get('catapro', {}).get('image', 'ghcr.io/robaina/catapro:latest'),
                 '--gpus', resources.get('gpus', 'all'),
                 '--shm-size', resources.get('shm_size', '100g')
             ],
             
-            'geopoc': [
-                'sudo', 'bash', str(self.scripts_dir / 'run_geopoc.sh'),
-                '--input', str(paths['clean_fasta']),
-                '--output', str(paths['geopoc_output']),
-                '--esm', str(paths['modeldir']),
-                '--model', str(paths['geopoc_model']),
-                '--structures', str(paths['structures']),
-                '--embeddings', str(paths['embeddings']),
-                '--tasks', 'temp,pH,salt',
+            'temstapro': [
+                'sudo', 'bash', str(self.scripts_dir / 'temstapro/run_temstapro.sh'),
+                '--input', safe_path_str('clean_fasta'),
+                '--output', safe_path_str('temstapro_output'),
+                '--model', safe_path_str('temstapro_model', str(self._get_safe_path('modeldir') / 'temstapro')),
                 '--parallel', str(self.config.get('workers', 2)),
-                '--docker-image', containers.get('geopoc', {}).get('image', 'ghcr.io/new-atlantis-labs/geopoc:latest'),
+                '--docker-image', containers.get('temstapro', {}).get('image', 'ghcr.io/robaina/temstapro:latest'),
                 '--gpus', resources.get('gpus', 'all'),
                 '--shm-size', resources.get('shm_size', '100g')
-            ],
-            
-            'gatsol': [
-                'sudo', 'bash', str(self.scripts_dir / 'run_gatsol.sh'),
-                '--input', str(paths['clean_fasta']),
-                '--output', str(paths['gatsol_output']),
-                '--structures', str(paths['structures']),
-                '--model', str(paths['gatsol_model']),
-                '--esm', str(paths['modeldir']),
-                '--batch-size', '32',
-                '--parallel', str(self.config.get('workers', 2)),
-                '--feature-batch', '4',
-                '--timeout', '600',
-                '--docker-image', containers.get('gatsol', {}).get('image', 'ghcr.io/new-atlantis-labs/gatsol:latest'),
-                '--gpus', resources.get('gpus', 'all'),
-                '--shm-size', resources.get('shm_size', '100g')
-            ],
-            
-            'classical_properties': [
-                python_exe, str(self.scripts_dir / 'predict_classic_properties.py'),
-                '--input', str(paths['clean_fasta']),
-                '--log', str(paths['log_dir'] / f"classical_properties_{self.config.condition}.log"),
-                '--output', str(paths['classical_properties_results'])  # Make sure this is the results subdirectory
-            ],
-                        
-            'process_temberture': [
-                python_exe, str(self.scripts_dir / 'process_temberture.py'),
-                '-i', str(paths['temberture_output']),
-                '-o', str(paths['temberture_results'])
-            ],
-            
-            'process_geopoc': [
-                python_exe, str(self.scripts_dir / 'process_geopoc.py'),
-                '--input', str(paths['geopoc_output']),
-                '--output', str(paths['geopoc_results'])
-            ],
-            
-            'process_gatsol': [
-                python_exe, str(self.scripts_dir / 'process_gatsol.py'),
-                '--input_dir', str(paths['gatsol_output']),
-                '--output_dir', str(paths['gatsol_results'])
             ],
             
             'process_catpred': [
-                python_exe, str(self.scripts_dir / 'process_catpred.py'),
-                '--input_dir', str(paths['catpred_output']),
-                '--faa_dir', str(paths['clean_fasta']),
-                '--output_dir', str(paths['catpred_results']),
-                '--catpred_input_dir', str(paths['catpred_input'])  # Add this line
+                python_exe, str(self.scripts_dir / 'catpred/process_catpred.py'),
+                '--input_dir', safe_path_str('catpred_output'),
+                '--faa_dir', safe_path_str('clean_fasta'),
+                '--output_dir', safe_path_str('catpred_results'),
+                '--catpred_input_dir', safe_path_str('catpred_input')
+            ],
+            
+            'process_catapro': [
+                python_exe, str(self.scripts_dir / 'catapro/process_catapro.py'),
+                '--input_dir', safe_path_str('catapro_output'),
+                '--faa_dir', safe_path_str('clean_fasta'),
+                '--output_dir', safe_path_str('catapro_results'),
+                '--catapro_input_dir', safe_path_str('catapro_input')
+            ],
+            
+            'process_temstapro': [
+                python_exe, str(self.scripts_dir / 'temstapro/process_temstapro.py'),
+                '--input_dir', safe_path_str('temstapro_output'),
+                '--faa_dir', safe_path_str('clean_fasta'),
+                '--output_dir', safe_path_str('temstapro_results'),
+                '--temstapro_input_dir', safe_path_str('temstapro_input', safe_path_str('temstapro_output')),
+                '--method', self.config.get('temstapro_method', 'tm_interpolation')
             ],
             
             'consolidate_results': [
-                python_exe, str(self.scripts_dir / 'make_output_tables.py'),
-                '-i', str(paths['results_dir']),
-                '-o', str(paths['consolidated_results']),
-                '--tools', 'catpred', 'gatsol', 'geopoc', 'temberture', 'classical_properties'
+                python_exe, str(self.scripts_dir / 'preprocess/make_output_tables.py'),
+                '-i', safe_path_str('results_dir'),
+                '-o', safe_path_str('consolidated_results'),
+                '--tools', 'catpred', 'catapro', 'temstapro'
             ],
         }
         
         # Add quiet flag if specified
         if self.config.get('quiet', False):
             for step_name, cmd in steps.items():
-                if step_name in ['catpred', 'temberture', 'geopoc', 'gatsol']:
+                if step_name in ['catpred', 'catapro', 'temstapro']:
                     cmd.append('--quiet')
+        
+        # Log commands for debugging
+        self.logger.debug("=== Generated Step Commands ===")
+        for step_name, cmd in steps.items():
+            self.logger.debug(f"{step_name}: {' '.join(cmd[:3])}...")
+            # Check for empty paths in the command
+            for i, arg in enumerate(cmd):
+                if not arg or arg == "None":
+                    self.logger.warning(f"Empty argument in {step_name} command at position {i}")
         
         return steps
     
-    def _count_input_files(self, directory: Path, pattern: str = "*.faa") -> int:
+    def _count_input_files(self, directory_path: Optional[Path], pattern: str = "*.faa") -> int:
         """Count input files for progress tracking"""
-        if directory.exists():
-            return len(list(directory.glob(pattern)))
+        if directory_path and directory_path.exists():
+            return len(list(directory_path.glob(pattern)))
         return 0
     
     def _is_warning_or_info_line(self, line: str) -> bool:
-        """Check if a line is a warning or informational message, not a real error"""
+        """Check if a line is a warning or informational message"""
         line_lower = line.lower()
-
-        # Common warning patterns (now includes container-exit notices)
         warning_patterns = [
             'warning:', 'futurewarning:', 'deprecationwarning:', 'userwarning:',
             'runtimewarning:', 'pendingdeprecationwarning:', 'importwarning:',
-            'unicodewarning:', 'byteswarning:', 'resourcewarning:',
-            'will not inherit from', 'will lose the ability', 'from 👉v4.50👈',
-            'get rid of this warning by', 'you can get rid of this warning',
-            'please modify your model class', 'please contact the model',
-            'weights_only=false', 'torch.load', 'pickle module implicitly',
-            'torch.serialization.add_safe_globals', 'experimental feature',
-            'passing list objects for adapter activation is deprecated',
-            'use stack or fuse explicitly',
-            'failed with exit code'   # container exit messages
+            'will not inherit from', 'get rid of this warning by', 
+            'weights_only=false', 'torch.load', 'experimental feature',
+            'failed with exit code'
         ]
-
-        # Progress indicators (not errors)
         progress_patterns = [
             '%|', 'it/s]', '/s]', '[00:00<', '██████████', 'completed in',
-            'successful:', 'found', 'output files', 'analysis complete',
-            'all jobs completed successfully'
+            'successful:', 'found', 'output files', 'analysis complete'
         ]
-
-        # If it matches one of the warning patterns, treat it as non-error
-        if any(pat in line_lower for pat in warning_patterns):
-            return True
-
-        # If it looks like a progress/info line, ignore as well
-        if any(pat in line_lower for pat in progress_patterns):
-            return True
-
-        # Common success/completion phrases
-        success_patterns = ['step', 'completed', 'analysis complete', 'jobs completed successfully']
-        if any(pat in line_lower for pat in success_patterns):
-            return True
-
-        return False
-
+        return any(pat in line_lower for pat in warning_patterns + progress_patterns)
 
     def _is_real_error(self, line: str) -> bool:
-        """Check if a line represents a real error that should cause failure"""
-        line_lower = line.lower()
-
-        # First, filter out warnings/info
+        """Check if a line represents a real error"""
         if self._is_warning_or_info_line(line):
             return False
-
-        # OSError patterns: ignore any read-only FS errors
-        if 'oserror:' in line_lower:
-            if 'read-only file system' in line_lower:
-                return False
-            return True
-
-        # Real error patterns
+        
+        line_lower = line.lower()
         error_patterns = [
             'error:', 'exception:', 'traceback (most recent call last):',
             'fatal:', 'critical:', 'abort', 'segmentation fault',
@@ -341,11 +448,10 @@ class ProtScoutWorkflow:
             'permission denied', 'file not found', 'cannot open',
             'failed to', 'unable to', 'could not'
         ]
-
         return any(pat in line_lower for pat in error_patterns)
     
     def run_step(self, step_name: str, retry: int = 0) -> StepResult:
-        """Run a single workflow step with retries and monitoring"""
+        """Run a single workflow step with comprehensive error handling"""
         if step_name not in self.step_commands:
             self.logger.error(f"Unknown step: {step_name}")
             return StepResult(step_name, False, 0, error="Unknown step")
@@ -356,18 +462,17 @@ class ProtScoutWorkflow:
         # Count input files for progress context
         input_count = 0
         if step_name == 'clean_sequences':
-            input_count = self._count_input_files(self.config.paths['input_fasta'])
-        elif step_name in ['esmfold', 'esm2', 'temberture', 'geopoc', 'gatsol']:
-            input_count = self._count_input_files(self.config.paths['clean_fasta'])
+            input_count = self._count_input_files(self._get_safe_path('input_fasta'))
+        elif step_name in ['catpred', 'catapro', 'temstapro']:
+            input_count = self._count_input_files(self._get_safe_path('clean_fasta'))
         
         if input_count > 0:
             self.logger.info(f"Processing {input_count} input files")
         
+        # Log the actual command being run
+        self.logger.info(f"Running command: {' '.join(cmd[:5])}...")
+        
         try:
-            # Log the command being run (sanitized)
-            self.logger.debug(f"Running command: {' '.join(cmd[:3])}...")
-            
-            # Run the command
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -377,19 +482,17 @@ class ProtScoutWorkflow:
                 universal_newlines=True
             )
             
-            # Stream output in real-time
             output_lines = []
             error_lines = []
             warning_lines = []
             real_error_lines = []
             
-            # Read stdout line by line
+            # Stream output in real-time
             for line in process.stdout:
                 line = line.strip()
                 if line:
                     output_lines.append(line)
                     
-                    # Categorize the line
                     if self._is_warning_or_info_line(line):
                         warning_lines.append(line)
                         if not self.config.get('quiet', False):
@@ -407,8 +510,6 @@ class ProtScoutWorkflow:
                 for line in stderr.strip().split('\n'):
                     if line.strip():
                         error_lines.append(line)
-                        
-                        # Categorize stderr lines
                         if self._is_warning_or_info_line(line):
                             warning_lines.append(line)
                             if not self.config.get('quiet', False):
@@ -419,34 +520,16 @@ class ProtScoutWorkflow:
             
             duration = time.time() - start_time
             
-            # For container-based tools, check if output was actually created
+            # Check if output was created for container-based tools
             output_created = False
             output_file_count = 0
-            if step_name in ['temberture', 'geopoc', 'gatsol', 'catpred', 'esmfold', 'esm2']:
-                output_dir_key = f'{step_name}_output'
-                if output_dir_key in self.config.paths:
-                    output_dir = Path(self.config.paths[output_dir_key])
-                elif step_name == 'esmfold':
-                    output_dir = Path(self.config.paths['structures'])
-                elif step_name == 'esm2':
-                    output_dir = Path(self.config.paths['embeddings'])
-                else:
-                    output_dir = None
-                    
+            if step_name in ['catpred', 'catapro', 'temstapro']:
+                output_dir = self._get_safe_path(f'{step_name}_output')
                 if output_dir and output_dir.exists():
-                    # Check for output files based on the tool
-                    if step_name == 'temberture':
-                        result_files = list(output_dir.glob('**/*_results.tsv'))
-                    elif step_name == 'geopoc':
-                        result_files = list(output_dir.glob('**/*.json'))
-                    elif step_name == 'gatsol':
+                    if step_name in ['catpred', 'catapro']:
                         result_files = list(output_dir.glob('**/*.csv'))
-                    elif step_name == 'catpred':
-                        result_files = list(output_dir.glob('**/final_predictions_*.csv'))
-                    elif step_name == 'esmfold':
-                        result_files = list(output_dir.glob('*.pdb'))
-                    elif step_name == 'esm2':
-                        result_files = list(output_dir.glob('*.pt'))
+                    elif step_name == 'temstapro':
+                        result_files = list(output_dir.glob('**/*.tsv'))
                     else:
                         result_files = []
                     
@@ -456,12 +539,8 @@ class ProtScoutWorkflow:
                     if output_created:
                         self.logger.info(f"  Found {output_file_count} output files")
             
-            # Determine if step was successful based on:
-            # 1. Exit code 0 OR
-            # 2. Output files were created AND no real errors occurred
-            success = (process.returncode == 0) or (
-                output_created and len(real_error_lines) == 0
-            )
+            # Determine success
+            success = (process.returncode == 0) or (output_created and len(real_error_lines) == 0)
             
             if success:
                 if process.returncode != 0:
@@ -487,8 +566,8 @@ class ProtScoutWorkflow:
                 # Build error message from real errors only
                 error_msg = ""
                 if real_error_lines:
-                    error_msg = '\n'.join(real_error_lines[:10])  # Limit to first 10 real errors
-                elif not output_created and step_name in ['temberture', 'geopoc', 'gatsol', 'catpred']:
+                    error_msg = '\n'.join(real_error_lines[:10])
+                elif not output_created and step_name in ['catpred', 'catapro', 'temstapro']:
                     error_msg = f"No output files created and process exited with code {process.returncode}"
                 else:
                     error_msg = f"Process failed with exit code {process.returncode}"
@@ -496,13 +575,11 @@ class ProtScoutWorkflow:
                 self.logger.error(f"✗ Step '{step_name}' failed after {format_duration(duration)}")
                 self.logger.error(f"  Exit code: {process.returncode}")
                 self.logger.error(f"  Real errors found: {len(real_error_lines)}")
-                if warning_lines:
-                    self.logger.info(f"  Warnings/info messages: {len(warning_lines)}")
                 
                 # Retry logic
                 if retry < self.config.get('max_retries', 2):
                     self.logger.info(f"  Retrying step '{step_name}' (attempt {retry + 2})...")
-                    time.sleep(5)  # Wait before retry
+                    time.sleep(5)
                     return self.run_step(step_name, retry + 1)
                 
                 return StepResult(step_name, False, duration, error=error_msg)
@@ -518,7 +595,7 @@ class ProtScoutWorkflow:
         """Save workflow state for resume capability"""
         state = {
             'timestamp': datetime.now().isoformat(),
-            'condition': self.config.condition,
+            'condition': getattr(self.config, 'condition', 'unknown'),
             'completed_steps': list(self.results.keys()),
             'step_results': {
                 name: {
@@ -530,48 +607,48 @@ class ProtScoutWorkflow:
             }
         }
         
-        with open(self.state_file, 'w') as f:
-            json.dump(state, f, indent=2)
-        
-        self.logger.debug(f"State saved to {self.state_file}")
+        state_file = self._get_safe_path('output_dir') / '.workflow_state.json'
+        try:
+            with open(state_file, 'w') as f:
+                json.dump(state, f, indent=2)
+            self.logger.debug(f"State saved to {state_file}")
+        except Exception as e:
+            self.logger.error(f"Could not save state: {e}")
     
     def _load_state(self):
         """Load previous workflow state"""
-        if self.state_file.exists():
-            with open(self.state_file) as f:
-                state = json.load(f)
-            
-            # Verify condition matches
-            if state.get('condition') != self.config.condition:
-                self.logger.warning(
-                    f"State condition '{state.get('condition')}' doesn't match "
-                    f"current condition '{self.config.condition}'. Starting fresh."
-                )
-                return
-            
-            # Restore completed steps
-            for step_name in state.get('completed_steps', []):
-                result_data = state['step_results'].get(step_name, {})
-                self.results[step_name] = StepResult(
-                    step_name,
-                    result_data.get('success', True),
-                    result_data.get('duration', 0)
-                )
-            
-            self.logger.info(f"Resumed from previous state: {len(self.results)} steps completed")
-    
-    def run(self, steps: Optional[List[str]] = None, parallel_groups: Optional[List[List[str]]] = None):
-        """
-        Run the complete workflow or specified steps
+        state_file = self._get_safe_path('output_dir') / '.workflow_state.json'
         
-        Args:
-            steps: List of steps to run (if None, runs all configured steps)
-            parallel_groups: List of step groups that can run in parallel
-        """
+        if state_file.exists():
+            try:
+                with open(state_file) as f:
+                    state = json.load(f)
+                
+                config_condition = getattr(self.config, 'condition', 'unknown')
+                if state.get('condition') != config_condition:
+                    self.logger.warning(
+                        f"State condition '{state.get('condition')}' doesn't match "
+                        f"current condition '{config_condition}'. Starting fresh."
+                    )
+                    return
+                
+                for step_name in state.get('completed_steps', []):
+                    result_data = state['step_results'].get(step_name, {})
+                    self.results[step_name] = StepResult(
+                        step_name,
+                        result_data.get('success', True),
+                        result_data.get('duration', 0)
+                    )
+                
+                self.logger.info(f"Resumed from previous state: {len(self.results)} steps completed")
+            except Exception as e:
+                self.logger.error(f"Could not load previous state: {e}")
+    
+    def run(self, steps: Optional[List[str]] = None):
+        """Run the complete workflow"""
         self.start_time = time.time()
         steps_to_run = steps or self.config.get('steps', self._get_default_steps())
         
-        # Filter out already completed steps if resuming
         if self.resume:
             steps_to_run = [s for s in steps_to_run if s not in self.results]
             if not steps_to_run:
@@ -580,12 +657,8 @@ class ProtScoutWorkflow:
         
         total_steps = len(steps_to_run)
         self.logger.info(f"Starting workflow with {total_steps} steps")
-        self.logger.info(f"Condition: {self.config.condition}")
-        self.logger.info(f"Output directory: {self.config.paths['output_dir']}")
-        
-        # Define parallel execution groups if not provided
-        if parallel_groups is None:
-            parallel_groups = self._get_parallel_groups()
+        self.logger.info(f"Condition: {getattr(self.config, 'condition', 'unknown')}")
+        self.logger.info(f"Output directory: {self._get_safe_path('output_dir')}")
         
         completed = len(self.results)
         
@@ -594,43 +667,20 @@ class ProtScoutWorkflow:
                 if self._interrupted:
                     break
                 
-                # Check if step is part of a parallel group
-                parallel_step_group = None
-                for group in parallel_groups:
-                    if step in group and all(s in steps_to_run for s in group):
-                        parallel_step_group = group
-                        break
-                
-                if parallel_step_group and step == parallel_step_group[0]:
-                    # Run parallel group
-                    self._run_parallel_steps(parallel_step_group, completed, total_steps)
-                    completed += len(parallel_step_group)
-                    # Mark other steps in group as processed
-                    for s in parallel_step_group[1:]:
-                        steps_to_run.remove(s)
-                elif not parallel_step_group:
-                    # Run single step
-                    completed += 1
-                    self.logger.info(f"\n[{completed}/{total_steps}] Running step: {step}")
-                    self.logger.info("=" * 60)
-                    
-                    result = self.run_step(step)
-                    self.results[step] = result
-                    
-                    if not result.success:
-                        self._save_state()
-                        self.logger.error(f"Workflow failed at step: {step}")
-                        self._print_summary()
-                        raise RuntimeError(f"Step {step} failed")
-                    
-                    self._save_state()
-            
-            # Run consolidation if all previous steps succeeded
-            if 'consolidate_results' not in self.results and not self._interrupted:
-                self.logger.info("\n[Final] Consolidating results")
+                completed += 1
+                self.logger.info(f"\n[{completed}/{total_steps}] Running step: {step}")
                 self.logger.info("=" * 60)
-                result = self.run_step('consolidate_results')
-                self.results['consolidate_results'] = result
+                
+                result = self.run_step(step)
+                self.results[step] = result
+                
+                if not result.success:
+                    self._save_state()
+                    self.logger.error(f"Workflow failed at step: {step}")
+                    self._print_summary()
+                    raise RuntimeError(f"Step {step} failed")
+                
+                self._save_state()
             
             self._print_summary()
             self.logger.info("✅ Workflow completed successfully!")
@@ -644,55 +694,16 @@ class ProtScoutWorkflow:
             self._print_summary()
             raise
     
-    def _run_parallel_steps(self, steps: List[str], completed: int, total: int):
-        """Run multiple steps in parallel"""
-        self.logger.info(f"\n[{completed + 1}-{completed + len(steps)}/{total}] "
-                        f"Running parallel steps: {', '.join(steps)}")
-        self.logger.info("=" * 60)
-        
-        with ThreadPoolExecutor(max_workers=len(steps)) as executor:
-            future_to_step = {
-                executor.submit(self.run_step, step): step 
-                for step in steps
-            }
-            
-            for future in as_completed(future_to_step):
-                step = future_to_step[future]
-                result = future.result()
-                self.results[step] = result
-                
-                if not result.success:
-                    # Cancel remaining futures
-                    for f in future_to_step:
-                        f.cancel()
-                    raise RuntimeError(f"Parallel step {step} failed")
-    
     def _get_default_steps(self) -> List[str]:
         """Get default step order"""
         return [
             'clean_sequences',
-            'esmfold',
-            'esm2',
-            'remove_sequences_without_pdb',
-            'prepare_catpred',
-            'catpred',
-            'temberture',
-            'geopoc',
-            'gatsol',
-            'classical_properties',
-            'process_temberture',
-            'process_geopoc',
-            'process_gatsol',
-            'process_catpred',
+            'prepare_catapro',
+            'catapro',
+            'temstapro',
+            'process_temstapro',
+            'process_catapro',
             'consolidate_results'
-        ]
-    
-    def _get_parallel_groups(self) -> List[List[str]]:
-        """Define which steps can run in parallel"""
-        return [
-            ['esmfold', 'esm2'],  # Structure and embeddings in parallel
-            ['catpred', 'temberture', 'geopoc', 'gatsol'],  # All prediction tools
-            ['process_temberture', 'process_geopoc', 'process_gatsol', 'process_catpred']  # Processing
         ]
     
     def _print_summary(self):
@@ -706,14 +717,12 @@ class ProtScoutWorkflow:
         self.logger.info("WORKFLOW SUMMARY")
         self.logger.info("=" * 60)
         
-        # Step results
         for step_name, result in self.results.items():
             status = "✓" if result.success else "✗"
             self.logger.info(
                 f"{status} {step_name:<30} {format_duration(result.duration):>10}"
             )
         
-        # Statistics
         successful = sum(1 for r in self.results.values() if r.success)
         failed = len(self.results) - successful
         
@@ -722,7 +731,12 @@ class ProtScoutWorkflow:
         self.logger.info(f"Successful: {successful}")
         self.logger.info(f"Failed: {failed}")
         self.logger.info(f"Total duration: {format_duration(total_duration)}")
-        self.logger.info(f"Log file: {self.config.log_file}")
+        
+        log_file = getattr(self.config, 'log_file', None) 
+        if log_file:
+            self.logger.info(f"Log file: {log_file}")
         
         if successful == len(self.results):
-            self.logger.info(f"Results: {self.config.paths['consolidated_results']}")
+            consolidated_path = self._get_safe_path('consolidated_results')
+            if consolidated_path:
+                self.logger.info(f"Results: {consolidated_path}")

@@ -1,0 +1,75 @@
+condition: test
+workdir: /home/ubuntu/lab4/ProtScout
+modeldir: /home/ubuntu/lab4/model_weights
+python_executable: /home/ubuntu/.conda/envs/protscout/bin/python
+substrate_id: "PET"
+
+paths:
+  # Base directories
+  input_base: /home/ubuntu/lab4/ProtScout/tests/data
+  input_fasta: /home/ubuntu/lab4/ProtScout/tests/data/sequences
+  substrate_analogs: /home/ubuntu/lab4/ProtScout/tests/data/substrate_analogs.tsv
+  artifacts_base: /home/ubuntu/lab4/ProtScout/tests/artifacts
+  results_base: /home/ubuntu/lab4/ProtScout/tests/results
+  
+  # Processing directories
+  clean_fasta: /home/ubuntu/lab4/ProtScout/tests/artifacts/clean_sequences
+  
+  # CataPro paths (your existing paths)
+  catapro_input: /home/ubuntu/lab4/ProtScout/tests/artifacts/catapro_data
+  # catapro_output: /home/ubuntu/lab4/ProtScout/tests/artifacts/catapro
+  catapro_model: /home/ubuntu/lab4/model_weights/catapro/models
+  # catapro_results: /home/ubuntu/lab4/ProtScout/tests/results/catapro
+  
+  # TemStaPro paths
+  temstapro_output: /home/ubuntu/lab4/ProtScout/tests/artifacts/temstapro
+  temstapro_model: /home/ubuntu/lab4/model_weights/ProtTrans
+  # temstapro_results: /home/ubuntu/lab4/ProtScout/tests/results/temstapro
+  
+  # Standard paths that workflow expects
+  structures: /home/ubuntu/lab4/ProtScout/tests/artifacts/structures
+  embeddings: /home/ubuntu/lab4/ProtScout/tests/artifacts/embeddings
+  
+  # Results directories
+  results_dir: /home/ubuntu/lab4/ProtScout/tests/results
+  consolidated_results: /home/ubuntu/lab4/ProtScout/tests/results/consolidated
+  
+  # Override default log directory
+  log_dir: /home/ubuntu/lab4/ProtScout/tests/logs
+
+# TemStaPro method configuration
+temstapro_method: "tm_interpolation"
+
+# Resource allocation
+memory: 100g
+workers: 2
+quiet: false
+max_retries: 2
+preserve_artifacts: false
+
+# Container configuration
+containers:
+  catapro:
+    image: ghcr.io/robaina/protscout-tools-catapro:latest
+  temstapro:
+    image: ghcr.io/robaina/protscout-tools-temstapro:latest
+
+# GPU and shared memory settings
+resources:
+  gpus: all
+  shm_size: 100g
+
+# Clean sequences configuration
+clean_sequences:
+  remove_duplicates: true
+  prefix: ""
+
+# Steps to execute
+steps:
+  - clean_sequences
+  - prepare_catapro
+  - catapro
+  - temstapro
+  - process_temstapro
+  - process_catapro
+  - consolidate_results
