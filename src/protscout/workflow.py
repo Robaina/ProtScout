@@ -305,13 +305,79 @@ class ProtScoutWorkflow:
             path = self._get_safe_path(path_key)
             return str(path) if path else default
         
+        # Get clean_sequences config
+        clean_seq_config = self.config.get('clean_sequences', {})
+        clean_seq_cmd = [
+            python_exe, str(self.scripts_dir / 'preprocess/clean_sequences.py'),
+            '--input_dir', safe_path_str('input_fasta'),
+            '--output_dir', safe_path_str('clean_fasta'),
+        ]
+        if clean_seq_config.get('remove_duplicates', False):
+            clean_seq_cmd.append('--remove_duplicates')
+        # Add prefix parameter
+        prefix = clean_seq_config.get('prefix', 'cleaned_')
+        clean_seq_cmd.extend(['--prefix', prefix if prefix is not None else ''])
+
         steps = {
-            'clean_sequences': [
-                python_exe, str(self.scripts_dir / 'preprocess/clean_sequences.py'),
-                '--input_dir', safe_path_str('input_fasta'),
-                '--output_dir', safe_path_str('clean_fasta'),
-                '--remove_duplicates',
-                '--prefix', ''
+            'clean_sequences': clean_seq_cmd,
+
+            'esmfold': [
+                'sudo', 'bash', str(self.scripts_dir / 'esm/run_esmfold.sh'),
+                '--input', safe_path_str('clean_fasta'),
+                '--output', safe_path_str('structures'),
+                '--memory', resources.get('memory', '16g'),
+                '--max-containers', str(containers.get('esmfold', {}).get('max_containers', 1)),
+                '--docker-image', containers.get('esmfold', {}).get('image', 'ghcr.io/robaina/protscout-tools-esmfold:latest')
+            ],
+
+            'esm2': [
+                'sudo', 'bash', str(self.scripts_dir / 'esm/run_esm2.sh'),
+                '--input', safe_path_str('clean_fasta'),
+                '--output', safe_path_str('embeddings'),
+                '--memory', resources.get('memory', '16g'),
+                '--model', containers.get('esm2', {}).get('model', 'esm2_t36_3B_UR50D'),
+                '--toks_per_batch', str(containers.get('esm2', {}).get('toks_per_batch', 4096)),
+                '--include', containers.get('esm2', {}).get('include', 'per_tok'),
+                '--max-containers', str(containers.get('esm2', {}).get('max_containers', 1)),
+                '--docker-image', containers.get('esm2', {}).get('image', 'ghcr.io/robaina/protscout-tools-esm2:latest')
+            ],
+
+            'remove_sequences_without_pdb': [
+                python_exe, str(self.scripts_dir / 'preprocess/remove_sequences_without_pdb.py'),
+                '--faa_dir', safe_path_str('clean_fasta'),
+                '--pdb_dir', safe_path_str('structures'),
+                '--output_dir', safe_path_str('clean_fasta')
+            ],
+
+            'temberture': [
+                'sudo', 'bash', str(self.scripts_dir / 'temberture/run_temberture.sh'),
+                '--input', safe_path_str('clean_fasta'),
+                '--output', safe_path_str('temberture_output'),
+                '--parallel', str(self.config.get('workers', 2)),
+                '--docker-image', containers.get('temberture', {}).get('image', 'ghcr.io/robaina/protscout-tools-temberture:latest'),
+                '--gpus', resources.get('gpus', 'all'),
+                '--shm-size', resources.get('shm_size', '100g')
+            ],
+
+            'geopoc': [
+                'sudo', 'bash', str(self.scripts_dir / 'geopoc/run_geopoc.sh'),
+                '--input', safe_path_str('clean_fasta'),
+                '--output', safe_path_str('geopoc_output'),
+                '--model', safe_path_str('geopoc_model', str(self._get_safe_path('modeldir') / 'geopoc')),
+                '--esm', safe_path_str('modeldir'),
+                '--structures', safe_path_str('structures'),
+                '--embeddings', safe_path_str('embeddings'),
+                '--tasks', containers.get('geopoc', {}).get('tasks', 'temp,pH,salt'),
+                '--parallel', str(self.config.get('workers', 2)),
+                '--docker-image', containers.get('geopoc', {}).get('image', 'ghcr.io/robaina/protscout-tools-geopoc:latest'),
+                '--gpus', resources.get('gpus', 'all'),
+                '--shm-size', resources.get('shm_size', '100g')
+            ],
+
+            'classical_properties': [
+                python_exe, str(self.scripts_dir / 'preprocess/predict_classic_properties.py'),
+                '--input', safe_path_str('clean_fasta'),
+                '--output', safe_path_str('classical_properties_output')
             ],
             
             'prepare_catpred': [
@@ -387,19 +453,31 @@ class ProtScoutWorkflow:
                 '--temstapro_input_dir', safe_path_str('temstapro_input', safe_path_str('temstapro_output')),
                 '--method', self.config.get('temstapro_method', 'tm_interpolation')
             ],
-            
+
+            'process_temberture': [
+                python_exe, str(self.scripts_dir / 'temberture/process_temberture.py'),
+                '--input_dir', safe_path_str('temberture_output'),
+                '--output_dir', safe_path_str('temberture_results')
+            ],
+
+            'process_geopoc': [
+                python_exe, str(self.scripts_dir / 'geopoc/process_geopoc.py'),
+                '--input_dir', safe_path_str('geopoc_output'),
+                '--output_dir', safe_path_str('geopoc_results')
+            ],
+
             'consolidate_results': [
                 python_exe, str(self.scripts_dir / 'preprocess/make_output_tables.py'),
-                '-i', safe_path_str('results_dir'),
-                '-o', safe_path_str('consolidated_results'),
-                '--tools', 'catpred', 'catapro', 'temstapro'
+                '--input_dir', safe_path_str('results_dir'),
+                '--output_dir', safe_path_str('consolidated_results'),
+                '--tools', 'temberture', 'geopoc', 'classical_properties'
             ],
         }
         
         # Add quiet flag if specified
         if self.config.get('quiet', False):
             for step_name, cmd in steps.items():
-                if step_name in ['catpred', 'catapro', 'temstapro']:
+                if step_name in ['catpred', 'catapro', 'temstapro', 'temberture', 'geopoc']:
                     cmd.append('--quiet')
         
         # Log commands for debugging
@@ -463,7 +541,7 @@ class ProtScoutWorkflow:
         input_count = 0
         if step_name == 'clean_sequences':
             input_count = self._count_input_files(self._get_safe_path('input_fasta'))
-        elif step_name in ['catpred', 'catapro', 'temstapro']:
+        elif step_name in ['catpred', 'catapro', 'temstapro', 'esmfold', 'esm2', 'temberture', 'geopoc']:
             input_count = self._count_input_files(self._get_safe_path('clean_fasta'))
         
         if input_count > 0:
@@ -523,19 +601,30 @@ class ProtScoutWorkflow:
             # Check if output was created for container-based tools
             output_created = False
             output_file_count = 0
-            if step_name in ['catpred', 'catapro', 'temstapro']:
+            if step_name in ['catpred', 'catapro', 'temstapro', 'temberture', 'geopoc', 'esmfold', 'esm2']:
                 output_dir = self._get_safe_path(f'{step_name}_output')
+                if not output_dir:
+                    # For esmfold and esm2, use alternate path keys
+                    if step_name == 'esmfold':
+                        output_dir = self._get_safe_path('structures')
+                    elif step_name == 'esm2':
+                        output_dir = self._get_safe_path('embeddings')
+
                 if output_dir and output_dir.exists():
                     if step_name in ['catpred', 'catapro']:
                         result_files = list(output_dir.glob('**/*.csv'))
-                    elif step_name == 'temstapro':
+                    elif step_name in ['temstapro', 'temberture', 'geopoc']:
                         result_files = list(output_dir.glob('**/*.tsv'))
+                    elif step_name == 'esmfold':
+                        result_files = list(output_dir.glob('**/*.pdb'))
+                    elif step_name == 'esm2':
+                        result_files = list(output_dir.glob('**/*.pt'))
                     else:
                         result_files = []
-                    
+
                     output_file_count = len(result_files)
                     output_created = output_file_count > 0
-                    
+
                     if output_created:
                         self.logger.info(f"  Found {output_file_count} output files")
             
@@ -567,7 +656,7 @@ class ProtScoutWorkflow:
                 error_msg = ""
                 if real_error_lines:
                     error_msg = '\n'.join(real_error_lines[:10])
-                elif not output_created and step_name in ['catpred', 'catapro', 'temstapro']:
+                elif not output_created and step_name in ['catpred', 'catapro', 'temstapro', 'temberture', 'geopoc', 'esmfold', 'esm2']:
                     error_msg = f"No output files created and process exited with code {process.returncode}"
                 else:
                     error_msg = f"Process failed with exit code {process.returncode}"
